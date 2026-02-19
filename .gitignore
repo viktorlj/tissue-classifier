@@ -9,3 +9,4 @@ build/
 reference_data/shap_background.pkl
 results/
 models/
+tests/test_output/

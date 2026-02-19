@@ -39,6 +39,7 @@ class SHAPExplainer:
         self.predictor = predictor
         self.nsamples = nsamples
         self.class_labels = predictor.class_labels
+        self.feature_names = ref.training_feature_order
 
         bg_path = ref._dir / "shap_background.pkl"
         if not bg_path.exists():
@@ -50,9 +51,7 @@ class SHAPExplainer:
         self.expected_values = np.array(self.explainer.expected_value)
 
     def _predict_proba(self, X: np.ndarray) -> np.ndarray:
-        feature_names = list(self.predictor.predictor.feature_metadata.get_features())
-        n_features = X.shape[1]
-        df = pd.DataFrame(X, columns=feature_names[:n_features])
+        df = pd.DataFrame(X, columns=self.feature_names[:X.shape[1]])
         return self.predictor.predictor.predict_proba(df).values
 
     def explain(
