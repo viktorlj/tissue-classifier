@@ -64,7 +64,10 @@ def run_pipeline(config: PipelineConfig) -> dict:
     feature_series = {
         "mutations": extract_mutation_features(maf, ref),
         "sv": extract_sv_features(sv_df, ref),
-        "deepsig": extract_deepsig_features(maf, ref, mode=config.deepsig_mode),
+        "deepsig": extract_deepsig_features(
+            maf, ref, mode=config.deepsig_mode,
+            docker_image=config.deepsig_docker_image,
+        ),
         "mutfreq": extract_mutfreq_features(maf, ref),
         "clinical": extract_clinical_features(age=config.age, sex=config.sex),
         "tert": extract_tert_features(maf, ref),

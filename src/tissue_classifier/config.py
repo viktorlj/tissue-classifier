@@ -26,6 +26,7 @@ class PipelineConfig(BaseModel):
     model_dir: Path = DEFAULT_MODEL_DIR
     reference_dir: Path = REFERENCE_DIR
     deepsig_mode: str = Field(default="skip", pattern="^(docker|subprocess|skip)$")
+    deepsig_docker_image: str = "tissue-classifier-deepsig:latest"
     output_dir: Path = Path("./results")
     sample_id: str = "SAMPLE"
     shap_nsamples: int = 500

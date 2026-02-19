@@ -4,7 +4,7 @@
 Standalone inference pipeline that takes a patient's MAF/SEG files, extracts 4,333 features, runs the AutoGluon WeightedEnsemble_L3 classifier, and generates an HTML report with predictions and SHAP explanations.
 
 ## Current Status
-Core pipeline implemented and tested. All 7 feature extractors working. Compilation to 4,333 features verified.
+Full pipeline working end-to-end including SHAP explanations. CLI predict command generates HTML report with predictions, confidence, and KernelSHAP feature importance. 7/7 unit tests passing. AutoGluon uses 2,302 of 4,333 features internally.
 **Last updated:** 2026-02-19
 
 ## Active Tasks
@@ -23,6 +23,9 @@ Core pipeline implemented and tested. All 7 feature extractors working. Compilat
 - 4,333 features: 3,688 mutations + 186 SV + 13 DeepSig + 10 MutFreq + 2 Clinical + 18 TERT + 416 CNA
 - SEX encoding: Female=0, Male=1 (from Step02)
 - DeepSig: skip mode (fallback to zeros) when R/Docker not available
+- AutoGluon internally uses 2,302 features (drops some during training); pipeline passes all 4,333
+- SHAP background shape must be (50, 4333) to match training feature order, not model's internal 2,302
+- SHAP top features on synthetic data: SEX, BRAF_mut_count, TP53_mut_count — biologically sensible
 
 ## Data Inventory
 | Dataset | Source | Location | Notes |
