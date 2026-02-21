@@ -76,6 +76,7 @@ def generate_html_report(
     deepsig_status: str = "Skipped",
     shap_result: Optional[SHAPResult] = None,
     shap_nsamples: int = 500,
+    true_class: Optional[str] = None,
     output_path: Optional[Path] = None,
 ) -> str:
     """Generate an HTML report from prediction results.
@@ -136,6 +137,7 @@ def generate_html_report(
         sex=sex,
         deepsig_status=deepsig_status,
         shap_nsamples=shap_nsamples,
+        true_class=true_class,
         version=__version__,
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         n_classes=len(prediction.class_labels),
