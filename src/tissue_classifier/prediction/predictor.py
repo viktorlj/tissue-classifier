@@ -25,17 +25,17 @@ class PredictionResult:
 class TissuePredictor:
     """Wrapper around AutoGluon TabularPredictor for tissue classification."""
 
-    def __init__(self, model_dir: Path, model_name: str = "WeightedEnsemble_L3") -> None:
+    def __init__(self, model_dir: Path, model_name: str | None = None) -> None:
         from autogluon.tabular import TabularPredictor
 
         self.model_dir = model_dir
-        self.model_name = model_name
         logger.info("Loading AutoGluon model from %s", model_dir)
         self.predictor = TabularPredictor.load(str(model_dir))
+        self.model_name = model_name or self.predictor.model_best
         self.class_labels = sorted(self.predictor.class_labels)
         logger.info(
             "Model loaded: %d classes, model=%s",
-            len(self.class_labels), model_name,
+            len(self.class_labels), self.model_name,
         )
 
     def predict(self, features_df: pd.DataFrame) -> PredictionResult:

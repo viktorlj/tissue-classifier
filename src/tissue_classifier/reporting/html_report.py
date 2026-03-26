@@ -44,13 +44,12 @@ def _nonzero_features_by_modality(
     step_labels = {
         "Step05_Mutations": "Mutations",
         "Step06_SV": "Structural Variants",
-        "Step07_Spectrum": "Mutation Spectrum (SBS-6)",
-        "Step09_MutFreq": "Mutation Frequency",
-        "Step10_Clinical": "Clinical",
-        "Step11_TERT": "TERT Promoter",
-        "Step12_CNA": "Copy Number",
+        "Step07_MutSpectrum": "Mutation Spectrum (SBS-6)",
+        "Step08_CNA": "Copy Number",
+        "Step09_Clinical": "Clinical",
     }
     result: dict[str, list[str]] = {v: [] for v in step_labels.values()}
+    result["Other"] = []  # catch-all for unmapped features
     row = features_df.iloc[0]
     for feat in features_df.columns:
         if row[feat] != 0:

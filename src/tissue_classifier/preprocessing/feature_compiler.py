@@ -30,8 +30,9 @@ def compile_features(
     """
     training_order = ref.training_feature_order
 
-    # Concatenate all feature series
+    # Concatenate all feature series, dropping duplicates (keep first)
     all_features = pd.concat(feature_series.values())
+    all_features = all_features[~all_features.index.duplicated(keep='first')]
 
     # Reindex to training order, filling missing with 0
     aligned = all_features.reindex(training_order, fill_value=0.0)
