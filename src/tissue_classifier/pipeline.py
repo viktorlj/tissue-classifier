@@ -10,7 +10,7 @@ import pandas as pd
 from .config import PipelineConfig, ReferenceData
 from .feature_extractors.clinical import extract_clinical_features
 from .feature_extractors.cna import extract_cna_features
-from .feature_extractors.deepsig import extract_deepsig_features
+from .feature_extractors.spectrum import extract_spectrum_features
 from .feature_extractors.mutations import extract_mutation_features
 from .feature_extractors.mutfreq import extract_mutfreq_features
 from .feature_extractors.sv import extract_sv_features
@@ -64,10 +64,7 @@ def run_pipeline(config: PipelineConfig) -> dict:
     feature_series = {
         "mutations": extract_mutation_features(maf, ref),
         "sv": extract_sv_features(sv_df, ref),
-        "deepsig": extract_deepsig_features(
-            maf, ref, mode=config.deepsig_mode,
-            docker_image=config.deepsig_docker_image,
-        ),
+        "spectrum": extract_spectrum_features(maf, ref),
         "mutfreq": extract_mutfreq_features(maf, ref),
         "clinical": extract_clinical_features(age=config.age, sex=config.sex),
         "tert": extract_tert_features(maf, ref),
@@ -112,7 +109,7 @@ def run_pipeline(config: PipelineConfig) -> dict:
         has_sv=sv_df is not None,
         age=config.age,
         sex=config.sex,
-        deepsig_status=config.deepsig_mode,
+        spectrum_status="computed",
         shap_result=shap_result,
         shap_nsamples=config.shap_nsamples,
         output_path=report_path,

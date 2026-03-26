@@ -26,10 +26,9 @@ def compile_features(
     Returns
     -------
     pd.DataFrame
-        Single-row DataFrame with exactly 4333 features in training order.
+        Single-row DataFrame with exactly 4320 features in training order.
     """
     training_order = ref.training_feature_order
-    deepsig_names = set(ref.deepsig_features)
 
     # Concatenate all feature series
     all_features = pd.concat(feature_series.values())
@@ -37,21 +36,32 @@ def compile_features(
     # Reindex to training order, filling missing with 0
     aligned = all_features.reindex(training_order, fill_value=0.0)
 
+    # Identify spectrum fraction features and Ti/Tv ratio
+    spectrum_fraction_names = {f for f in training_order if 'Fraction' in f and f.startswith(('C_', 'T_'))}
+    spectrum_fraction_names.add('Ti_Tv_Ratio')
+
+    # Track if spectrum data is available
+    has_spectrum = any(not pd.isna(aligned.get(f, float('nan'))) for f in spectrum_fraction_names)
+
     # Imputation rules matching training pipeline:
-    # - DeepSig SBS* features: NaN -> -1 (sentinel for "not computed")
-    # - AGE_AT_SEQ_REPORT: NaN -> 58.9 (median from training)
-    # - SEX: NaN -> 0 (mode from training = Female)
-    # - Everything else: NaN -> 0
+    # - Spectrum fraction features: NaN -> 0.0
+    # - AGE_AT_SEQ_REPORT: NaN -> 63.0 (training median)
+    # - SEX: NaN -> 0.0
+    # - Everything else: NaN -> 0.0
     for feat in training_order:
         if pd.isna(aligned[feat]):
-            if feat in deepsig_names:
-                aligned[feat] = -1.0
+            if feat in spectrum_fraction_names:
+                aligned[feat] = 0.0  # NaN fractions -> 0
             elif feat == "AGE_AT_SEQ_REPORT":
-                aligned[feat] = 58.9
+                aligned[feat] = 63.0  # training median
             elif feat == "SEX":
                 aligned[feat] = 0.0
             else:
                 aligned[feat] = 0.0
+
+    # Add the has_spectrum_data flag (added during training preprocessing)
+    if 'has_spectrum_data' in training_order:
+        aligned['has_spectrum_data'] = 1.0 if has_spectrum else 0.0
 
     assert len(aligned) == len(training_order), (
         f"Expected {len(training_order)} features, got {len(aligned)}"

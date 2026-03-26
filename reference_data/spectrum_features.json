@@ -1,0 +1,16 @@
+[
+  "C_A_Count",
+  "C_G_Count",
+  "C_T_Count",
+  "T_A_Count",
+  "T_C_Count",
+  "T_G_Count",
+  "C_A_Fraction",
+  "C_G_Fraction",
+  "C_T_Fraction",
+  "T_A_Fraction",
+  "T_C_Fraction",
+  "T_G_Fraction",
+  "Ti_Tv_Ratio",
+  "Spectrum_SNP_Count"
+]

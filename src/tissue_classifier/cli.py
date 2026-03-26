@@ -33,7 +33,6 @@ def predict(
     sex: Optional[str] = typer.Option(None, "--sex", help="Sex (Male/Female)"),
     genome: str = typer.Option("hg19", "--genome", help="Genome build"),
     model_dir: Path = typer.Option(DEFAULT_MODEL_DIR, "--model-dir"),
-    deepsig: str = typer.Option("skip", "--deepsig", help="DeepSig mode"),
     output: Path = typer.Option(Path("./results"), "--output", "-o"),
     sample_id: str = typer.Option("SAMPLE", "--sample-id"),
     config_file: Optional[Path] = typer.Option(None, "--config"),
@@ -47,7 +46,7 @@ def predict(
     else:
         cfg = PipelineConfig(
             maf_path=maf, seg_path=seg, sv_path=sv, age=age, sex=sex,
-            genome=genome, model_dir=model_dir, deepsig_mode=deepsig,
+            genome=genome, model_dir=model_dir,
             output_dir=output, sample_id=sample_id, shap_nsamples=shap_nsamples,
         )
     from .pipeline import run_pipeline

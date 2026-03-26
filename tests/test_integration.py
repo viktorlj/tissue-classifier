@@ -44,7 +44,6 @@ class TestCLIIntegration:
             "--seg", str(seg_path),
             "--output", str(tmp_path),
             "--sample-id", sample_id,
-            "--deepsig", "skip",
             "--shap-nsamples", "10",
         ]
         result = runner.invoke(app, args)
@@ -83,7 +82,6 @@ class TestCLIIntegration:
         cfg = PipelineConfig(
             maf_path=maf_path,
             seg_path=seg_path,
-            deepsig_mode="skip",
             output_dir=tmp_path,
             sample_id=sample_id,
             shap_nsamples=10,

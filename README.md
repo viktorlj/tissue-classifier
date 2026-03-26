@@ -27,6 +27,11 @@ tissue-classifier validate --maf sample.maf --seg sample.seg
 tissue-classifier info
 ```
 
+## Prerequisites
+
+- Python >= 3.11
+- uv (for environment management)
+
 ## Input Files
 
 ### MAF (required)
@@ -40,15 +45,15 @@ Tab-delimited structural variant file with columns: Sample_Id, Site1_Hugo_Symbol
 
 ## Model
 
-- AutoGluon WeightedEnsemble_L3 (23 tumor types, 4,333 features)
-- Training performance: 81.1% balanced accuracy, 95.5% top-3 accuracy
-- 7 feature modalities: mutations, structural variants, mutational signatures, mutation frequency, clinical, TERT promoter, copy number alterations
+- CatBoost_BAG_L2 via AutoGluon (22 tumor types, 4,320 features)
+- Training performance: 85.0% balanced accuracy, 94.8% top-3 accuracy
+- 7 feature modalities: mutations, structural variants, SBS-6 mutation spectrum, mutation frequency, clinical, TERT promoter, copy number alterations
 
 ## Output
 
 Self-contained HTML report with:
 - Top-3 predictions with confidence scores
-- Full probability distribution across 23 tumor types
+- Full probability distribution across 22 tumor types
 - SHAP feature explanations (when background data available)
 - Non-zero features by modality
 - Input data summary

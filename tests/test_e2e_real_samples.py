@@ -62,7 +62,6 @@ class TestFeatureComparison:
         cfg = PipelineConfig(
             maf_path=maf_path,
             seg_path=seg_path if seg_path.exists() else None,
-            deepsig_mode="skip",
             output_dir=tmp_path,
             sample_id=sample_id,
             shap_nsamples=10,  # minimal for speed
@@ -76,12 +75,11 @@ class TestFeatureComparison:
 
         # Get feature order (exclude TUMOR_TYPE label)
         feature_order = ref.training_feature_order
-        deepsig_features = set(ref.deepsig_features)
         # SV features differ because we don't provide SV file in test;
         # clinical features (AGE, SEX) differ because we don't provide them
         sv_features = {f for f in feature_order if "SV" in f or f.startswith("has_SV")}
         clinical_skip = {"AGE_AT_SEQ_REPORT", "SEX"}
-        skip_features = deepsig_features | sv_features | clinical_skip
+        skip_features = sv_features | clinical_skip
 
         mismatches = []
         for feat in feature_order:
@@ -128,7 +126,6 @@ class TestPredictionAccuracy:
         cfg = PipelineConfig(
             maf_path=maf_path,
             seg_path=seg_path if seg_path.exists() else None,
-            deepsig_mode="skip",
             output_dir=tmp_path,
             sample_id=sample_id,
             shap_nsamples=10,

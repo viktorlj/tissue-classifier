@@ -1,12 +1,26 @@
 __pycache__/
 *.pyc
 .venv/
-models/AutoGluon/
 *.egg-info/
 dist/
 build/
 .pytest_cache/
+
+# Large files
+models/
 reference_data/shap_background.pkl
 results/
-models/
 tests/test_output/
+tests/real_samples/
+
+# macOS
+.DS_Store
+._*
+
+# IDE
+.vscode/
+.idea/
+
+# Development notes
+plan.md
+lab-notebook.md

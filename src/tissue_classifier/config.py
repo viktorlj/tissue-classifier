@@ -25,8 +25,6 @@ class PipelineConfig(BaseModel):
     genome: str = Field(default="hg19", pattern="^(hg19|hg38)$")
     model_dir: Path = DEFAULT_MODEL_DIR
     reference_dir: Path = REFERENCE_DIR
-    deepsig_mode: str = Field(default="skip", pattern="^(docker|subprocess|skip)$")
-    deepsig_docker_image: str = "tissue-classifier-deepsig:latest"
     output_dir: Path = Path("./results")
     sample_id: str = "SAMPLE"
     shap_nsamples: int = 500
@@ -90,8 +88,8 @@ class ReferenceData:
         return self._load_json("recurrent_tert_mutations.json")
 
     @property
-    def deepsig_features(self) -> list[str]:
-        return self._load_json("deepsig_features.json")
+    def spectrum_features(self) -> list[str]:
+        return self._load_json("spectrum_features.json")
 
     @property
     def mutfreq_features(self) -> list[str]:
