@@ -126,3 +126,13 @@ class ReferenceData:
         import pandas as pd
         df = pd.read_csv(self._dir / "tissue_specific_mutations.csv")
         return set(df["Mutation_ID"].tolist())
+
+    @property
+    def rare_mutation_groups(self) -> dict[str, list[str]]:
+        """Load rare mutation grouping: gene → list of rare allele feature names."""
+        return self._load_json("rare_mutation_groups.json")
+
+    @property
+    def imputation_values(self) -> dict:
+        """Load imputation values (age median, sex mode) from training data."""
+        return self._load_json("imputation_values.json")

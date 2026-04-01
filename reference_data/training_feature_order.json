@@ -1,6 +1,4 @@
 [
-  "AGE_AT_SEQ_REPORT",
-  "SEX",
   "ABL1_9_133748425_G_T",
   "AKT1_14_105238746_G_A",
   "AKT1_14_105239294_C_A",
@@ -4318,5 +4316,7 @@
   "chromothripsis_score",
   "num_affected_chroms",
   "has_chromothripsis_signature",
+  "AGE_AT_SEQ_REPORT",
+  "SEX",
   "has_spectrum_data"
 ]

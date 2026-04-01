@@ -44,7 +44,7 @@ class TissuePredictor:
         Parameters
         ----------
         features_df : pd.DataFrame
-            Single-row DataFrame with 4333 features.
+            Single-row DataFrame with features in training order.
 
         Returns
         -------

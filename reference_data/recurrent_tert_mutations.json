@@ -1,1 +1,11 @@
-["TERT_5_1266588_G_A", "TERT_5_1279483_C_T", "TERT_5_1293643_C_T", "TERT_5_1294454_G_T", "TERT_5_1294576_C_T", "TERT_inframe", "TERT_missense", "TERT_splice", "TERT_truncating", "TERT_5_1264586_C_T", "TERT_5_1294665_G_-", "TERT_other", "TERT_SV"]
+[
+  "TERT_inframe",
+  "TERT_missense",
+  "TERT_splice",
+  "TERT_truncating",
+  "TERT_5_1264586_C_T",
+  "TERT_5_1294665_G_-",
+  "TERT_other",
+  "TERT_SV",
+  "TERT_rare_enriched"
+]

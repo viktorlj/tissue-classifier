@@ -1,1 +1,7 @@
-["SNP_Count", "INS_Count", "DEL_Count", "DNP_Count", "TNP_Count", "Total_Mutation_Count", "Indel_Fraction", "DNP_TNP_Fraction", "SNP_Fraction", "Log_TMB"]
+[
+  "SNP_Count",
+  "INS_Count",
+  "DEL_Count",
+  "DNP_Count",
+  "Total_Mutation_Count"
+]

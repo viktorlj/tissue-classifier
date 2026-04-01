@@ -142,6 +142,55 @@ def _chromothripsis(seg: pd.DataFrame, min_osc: int = 10) -> dict[str, float]:
     }
 
 
+def _rank_normalize_bins(bin_features: dict[str, float]) -> dict[str, float]:
+    """Rank-based CNA normalization.
+
+    For samples with ≥10 non-zero bins, replace non-zero bin values with
+    signed ranks normalized to [-1, 1]: sign(value) * rank(|value|) / n_nonzero.
+    This eliminates platform-dependent CNA scale differences while preserving
+    the relative ordering of gains and losses.
+    """
+    bin_keys = [k for k in bin_features if ":" in k]
+    bin_vals = np.array([bin_features[k] for k in bin_keys])
+
+    nonzero = bin_vals != 0
+    if nonzero.sum() < 10:
+        return bin_features
+
+    normalized = bin_features.copy()
+    nz_vals = bin_vals[nonzero]
+    signs = np.sign(nz_vals)
+    abs_vals = np.abs(nz_vals)
+    ranks = np.argsort(np.argsort(abs_vals)).astype(float) + 1
+    ranks /= len(ranks)
+    ranked = signs * ranks
+
+    nz_idx = 0
+    for i, k in enumerate(bin_keys):
+        if nonzero[i]:
+            normalized[k] = float(ranked[nz_idx])
+            nz_idx += 1
+
+    # Recalculate chromosome means from rank-normalized bins
+    for chrom in CHROMOSOMES:
+        chrom_bins = [k for k in bin_keys if k.startswith(f"{chrom}:")]
+        if chrom_bins:
+            chrom_vals = [normalized[k] for k in chrom_bins]
+            nonzero_chrom = [v for v in chrom_vals if v != 0]
+            normalized[f"{chrom}_mean"] = np.mean(nonzero_chrom) if nonzero_chrom else 0.0
+
+    # Recalculate summary stats from rank-normalized bins
+    norm_vals = np.array([normalized[k] for k in bin_keys])
+    nonzero_norm = norm_vals[norm_vals != 0]
+    if len(nonzero_norm) > 0:
+        normalized["mean_cn"] = float(np.mean(nonzero_norm))
+        normalized["std_cn"] = float(np.std(nonzero_norm))
+        normalized["median_cn"] = float(np.median(nonzero_norm))
+        normalized["mad_cn"] = float(np.median(np.abs(nonzero_norm - np.median(nonzero_norm))))
+
+    return normalized
+
+
 def extract_cna_features(
     seg: pd.DataFrame,
     ref: ReferenceData,
@@ -158,7 +207,8 @@ def extract_cna_features(
     Returns
     -------
     pd.Series
-        Series of 416 CNA features aligned to cna_features.json.
+        CNA features aligned to cna_features.json, with per-sample z-score
+        normalization of bin values to match v19 training pipeline.
     """
     cna_feature_names = ref.cna_features
 
@@ -172,6 +222,9 @@ def extract_cna_features(
     features.update(_focal_events(seg))
     features.update(_instability_metrics(seg))
     features.update(_chromothripsis(seg))
+
+    # Per-sample rank-based normalization of CNA bins (v18 pipeline)
+    features = _rank_normalize_bins(features)
 
     result = pd.Series(0.0, index=cna_feature_names, dtype=float)
     for k, v in features.items():
