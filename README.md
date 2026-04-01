@@ -8,13 +8,17 @@ Single-sample tissue-of-origin inference pipeline using an AutoGluon ensemble tr
 # Install
 uv venv && uv sync
 
-# Basic prediction
+# Basic prediction (mutations + copy number)
 tissue-classifier predict --maf sample.maf --seg sample.seg --age 65 --sex Male
+
+# With structural variants
+tissue-classifier predict --maf sample.maf --seg sample.seg --sv sample.sv --age 65 --sex Male
 
 # With all options
 tissue-classifier predict \
     --maf sample.maf \
     --seg sample.seg \
+    --sv sample.sv \
     --age 65 --sex Male \
     --genome hg19 \
     --output ./results \

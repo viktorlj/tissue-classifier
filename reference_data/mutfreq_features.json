@@ -3,5 +3,9 @@
   "INS_Count",
   "DEL_Count",
   "DNP_Count",
-  "Total_Mutation_Count"
+  "Total_Mutation_Count",
+  "Indel_Fraction",
+  "DNP_TNP_Fraction",
+  "SNP_Fraction",
+  "Log_TMB"
 ]
