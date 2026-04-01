@@ -45,9 +45,18 @@ Tab-delimited structural variant file with columns: Sample_Id, Site1_Hugo_Symbol
 
 ## Model
 
-- CatBoost_BAG_L2 via AutoGluon (22 tumor types, 4,320 features)
-- Training performance: 85.0% balanced accuracy, 94.8% top-3 accuracy
-- 7 feature modalities: mutations, structural variants, SBS-6 mutation spectrum, mutation frequency, clinical, TERT promoter, copy number alterations
+- CatBoost + XGBoost ensemble via AutoGluon (22 tumor types, ~4,320 features)
+- Rank-based CNA normalization for cross-platform compatibility
+- Rare mutation grouping for robust feature representation
+
+| Split | Balanced Accuracy | Top-3 Accuracy | @70% Confidence |
+|-------|-------------------|----------------|-----------------|
+| Test (MSK + UCSF-IDTV5) | 83.2% | 94.4% | 94.7% (76% coverage) |
+| Holdout (UCSF-NIMV4) | 68.5% | 93.3% | 93.5% (67% coverage) |
+
+Feature modalities: somatic mutations, structural variants, SBS-6 mutation spectrum, mutation frequency, copy number alterations, TERT promoter, clinical (age, sex).
+
+Training pipeline: [too-panelseq](https://github.com/viktorlj/too-panelseq)
 
 ## Output
 
