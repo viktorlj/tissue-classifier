@@ -16,33 +16,54 @@ Standalone clinical and research command-line package (`tissue-classifier`) for 
 - **Calibrated Cross-Architecture Ensemble**: 40 frozen PyTabKit networks (`2× RealMLP + 2× TabM` × 5 folds × unweighted & balanced arms) evaluated in pure PyTorch (MPS/CPU) with LogitPool aggregation and per-class vector scaling.
 - **Confidence-Tiered Clinical Policies**: Frozen thresholds for **High Confidence** (`>= 73%` Top-1: `96.2%` internal / `91.6%` external VICC accuracy), **Standard** (`>= 46%` Top-1: `90.6%` / `81.6%`), and **Top-3 Differential** (`96.0%` / `89.9%` at `100%` coverage).
 - **Scale-Invariant CNA & Fallback Mode**: 10 Mb signed-rank and winsorized-RMS CNA profiles (`hg19`, with `--genome hg38` liftover) plus `TERT` promoter hotspots (`C228T`/`C250T`). Samples missing `--seg` or `< 85%` observed-bin coverage emit `TECHNICAL_NO_CALL` by default, or route to a 40-network CNA-free fallback ensemble via `--allow-no-cna`.
-- **Exact All-Class SHAP & 4-Page Vector PDF Reports**: Coherent `PermutationSHAP` over synthetic aggregate-derived backgrounds (zero individual GENIE records redistributed) generating `report.pdf` (executive summary, Rank #1–#3 SHAP waterfalls, molecular profile, and 5-fold audit) plus optional `--html`.
+- **Exact All-Class SHAP & 4-Page Vector PDF Reports**: Coherent `PermutationSHAP` over synthetic aggregate-derived backgrounds (zero individual GENIE records redistributed) generating `report.pdf` (executive summary, Rank #1–#3 SHAP waterfalls, molecular profile & SBS-6 mutational etiology interpretation) plus optional `--html`.
 
 ---
 
 ## Installation
 
+Requires `git` and [`uv`](https://docs.astral.sh/uv/getting-started/installation/) (a fast Python package manager that automatically downloads Python 3.13 — install via `curl -LsSf https://astral.sh/uv/install.sh | sh` on macOS/Linux if you don't have it).
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/viktorlj/tissue-classifier.git
+cd tissue-classifier
+```
+
+### 2. Install Python 3.13 and dependencies
+
+Run this from inside the `tissue-classifier` directory to create a local virtual environment (`.venv/`):
+
 ```bash
 uv sync --python 3.13
 ```
 
-### Download Pretrained Model Weights (`v2.0.0`)
+### 3. Download pretrained model weights (`v2.0.0`)
 
-Because the 80 frozen ensemble checkpoints (`~2.1 GB` uncompressed) exceed standard Git limits, they are distributed via the [`v2.0.0` GitHub Release](https://github.com/viktorlj/tissue-classifier/releases/tag/v2.0.0):
+Because the 80 frozen ensemble checkpoints (`~2.1 GB` uncompressed) exceed standard Git limits, they are distributed via the [`v2.0.0` GitHub Release](https://github.com/viktorlj/tissue-classifier/releases/tag/v2.0.0). Run the following from inside the `tissue-classifier` directory:
 
 ```bash
-# Download and extract both primary (with CNA) and fallback (CNA-free) model bundles
-gh release download v2.0.0 --repo viktorlj/tissue-classifier \
-    -p "primary_50pct_blend.tar.gz" \
-    -p "fallback_without_cna.tar.gz" \
-    -p "SHA256SUMS.txt"
+# Download both primary (with CNA) and fallback (CNA-free) model bundles
+curl -LO https://github.com/viktorlj/tissue-classifier/releases/download/v2.0.0/primary_50pct_blend.tar.gz
+curl -LO https://github.com/viktorlj/tissue-classifier/releases/download/v2.0.0/fallback_without_cna.tar.gz
+curl -LO https://github.com/viktorlj/tissue-classifier/releases/download/v2.0.0/SHA256SUMS.txt
 
+# Verify checksums (use `sha256sum -c SHA256SUMS.txt` on Linux)
 shasum -a 256 -c SHA256SUMS.txt
+
+# Extract into models/primary_50pct_blend/ and models/fallback_without_cna/
 tar -xzf primary_50pct_blend.tar.gz
 tar -xzf fallback_without_cna.tar.gz
 ```
 
-*(Alternatively, download the `.tar.gz` archives directly from the Releases page and extract them in the repository root so `models/primary_50pct_blend/` and `models/fallback_without_cna/` exist.)*
+*(Alternatively, download the `.tar.gz` archives directly from the [Releases page](https://github.com/viktorlj/tissue-classifier/releases/tag/v2.0.0) in your browser or via `gh release download v2.0.0 --repo viktorlj/tissue-classifier`, and extract them in the repository root. You can delete the `.tar.gz` files after extraction to save disk space.)*
+
+### 4. Verify the installation
+
+```bash
+.venv/bin/tissue-classifier info
+```
 
 ---
 
