@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from dataclasses import dataclass
+from typing import Any, Optional
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 from ..config import TISSUE_DISPLAY_NAMES
 
@@ -304,3 +307,307 @@ def format_feature_value(feature_name: str, value: float) -> str:
 
     # Binary mutation / hotspot / SV indicator
     return "Present" if value > 0.5 else "Absent"
+
+
+def format_model_mode(active_model_mode: str, is_no_call: bool = False) -> str:
+    """Return clinician-facing TOPO model mode label."""
+    if is_no_call:
+        return "TOPO Quality Gate (No-Call)"
+    if active_model_mode == "primary_50pct_blend":
+        return "TOPO Primary (with CNA)"
+    if active_model_mode == "fallback_without_cna":
+        return "TOPO Fallback (No-CNA)"
+    return "TOPO Quality Gate (No-Call)"
+
+
+def format_model_tag(active_model_mode: str, is_no_call: bool = False) -> str:
+    """Return compact footer tag for TOPO reports."""
+    if is_no_call:
+        return "TOPO Technical No-Call"
+    if active_model_mode == "primary_50pct_blend":
+        return "TOPO Primary"
+    return "TOPO Fallback (No-CNA)"
+
+
+@dataclass
+class SBS6Interpretation:
+    """Heuristic clinical interpretation of a sample's 6-channel SBS mutational spectrum."""
+
+    evaluable: bool
+    n_snvs: int
+    ti_tv_ratio: Optional[float]
+    dominant_class: Optional[str]
+    dominant_count: int
+    dominant_fraction: Optional[float]
+    has_cc_tt_dnp: bool
+    pattern_code: str
+    label: str
+    short_tag: str
+    badge_color: str
+    detail: str
+    confidence_note: str
+    counts: dict[str, int]
+    fractions: dict[str, Optional[float]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "evaluable": self.evaluable,
+            "n_snvs": self.n_snvs,
+            "ti_tv_ratio": self.ti_tv_ratio,
+            "dominant_class": self.dominant_class,
+            "dominant_count": self.dominant_count,
+            "dominant_fraction": self.dominant_fraction,
+            "has_cc_tt_dnp": self.has_cc_tt_dnp,
+            "pattern_code": self.pattern_code,
+            "label": self.label,
+            "short_tag": self.short_tag,
+            "detail": self.detail,
+            "confidence_note": self.confidence_note,
+            "counts": self.counts,
+            "fractions": self.fractions,
+            "disclaimer": (
+                "Heuristic 6-channel panel SNV summary; not formal COSMIC SBS-96 signature deconvolution."
+            ),
+        }
+
+
+def _detect_cc_tt_dnp(usable_maf: Optional[pd.DataFrame]) -> bool:
+    """Check whether usable panel MAF contains a classic UV CC>TT / GG>AA dinucleotide substitution."""
+    if usable_maf is None or usable_maf.empty:
+        return False
+    if not {"Variant_Type", "Reference_Allele", "Tumor_Seq_Allele2"}.issubset(usable_maf.columns):
+        return False
+    dnps = usable_maf[usable_maf["Variant_Type"].astype(str).str.upper() == "DNP"]
+    if dnps.empty:
+        return False
+    refs = dnps["Reference_Allele"].astype(str).str.strip().str.upper()
+    alts = dnps["Tumor_Seq_Allele2"].astype(str).str.strip().str.upper()
+    return bool((((refs == "CC") & (alts == "TT")) | ((refs == "GG") & (alts == "AA"))).any())
+
+
+def interpret_sbs6_spectrum(
+    spectrum_df: pd.DataFrame,
+    usable_maf: Optional[pd.DataFrame] = None,
+) -> SBS6Interpretation:
+    """Derive a cautious, clinically informative heuristic interpretation of the SBS-6 spectrum."""
+    sbs_classes = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"]
+    counts = {
+        cls: int(round(float(spectrum_df[f"{cls.replace('>', '_')}_Count"].iloc[0])))
+        for cls in sbs_classes
+    }
+    n_snvs = int(round(float(spectrum_df["Spectrum_SNP_Count"].iloc[0])))
+    titv_raw = float(spectrum_df["Ti_Tv_Ratio"].iloc[0])
+    ti_tv: Optional[float] = round(titv_raw, 3) if np.isfinite(titv_raw) else None
+    has_cc_tt = _detect_cc_tt_dnp(usable_maf)
+
+    if n_snvs < 4:
+        return SBS6Interpretation(
+            evaluable=False,
+            n_snvs=n_snvs,
+            ti_tv_ratio=None,
+            dominant_class=None,
+            dominant_count=0,
+            dominant_fraction=None,
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="NOT_EVALUABLE",
+            label="Not Evaluable (<4 SNVs)",
+            short_tag="<4 SNVs",
+            badge_color="#64748B",
+            detail=(
+                f"Only {n_snvs} usable panel SNV{'s' if n_snvs != 1 else ''} detected; "
+                "at least 4 SNVs are required for SBS-6 mutational process interpretation."
+            ),
+            confidence_note="Insufficient SNV count (<4)",
+            counts=counts,
+            fractions={cls: None for cls in sbs_classes},
+        )
+
+    fractions: dict[str, Optional[float]] = {
+        cls: round(counts[cls] / n_snvs, 4) for cls in sbs_classes
+    }
+    dom_cls = max(sbs_classes, key=lambda c: counts[c])
+    dom_cnt = counts[dom_cls]
+    dom_frac = counts[dom_cls] / n_snvs
+
+    c_a_cnt, c_a_frac = counts["C>A"], counts["C>A"] / n_snvs
+    c_g_cnt, c_g_frac = counts["C>G"], counts["C>G"] / n_snvs
+    c_t_cnt, c_t_frac = counts["C>T"], counts["C>T"] / n_snvs
+    t_a_cnt, t_a_frac = counts["T>A"], counts["T>A"] / n_snvs
+    t_c_cnt, t_c_frac = counts["T>C"], counts["T>C"] / n_snvs
+
+    if n_snvs < 10:
+        conf_note = f"Low SNV count (n={n_snvs}); interpret cautiously"
+    elif n_snvs < 25:
+        conf_note = f"Moderate SNV count (n={n_snvs})"
+    else:
+        conf_note = f"High SNV count (n={n_snvs})"
+
+    if (has_cc_tt and c_t_frac >= 0.55) or (c_t_frac >= 0.70 and c_t_cnt >= 7):
+        dnp_note = (
+            " with a CC>TT dinucleotide substitution (DBS1-like)"
+            if has_cc_tt
+            else ""
+        )
+        alt_note = (
+            ""
+            if has_cc_tt
+            else " Temozolomide (SBS11) or MMR/deamination can also elevate C>T."
+        )
+        return SBS6Interpretation(
+            evaluable=True,
+            n_snvs=n_snvs,
+            ti_tv_ratio=ti_tv,
+            dominant_class="C>T",
+            dominant_count=c_t_cnt,
+            dominant_fraction=round(c_t_frac, 4),
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="UV_LIKE",
+            label="UV Exposure-Like (SBS7 / C>T)"
+            if not has_cc_tt
+            else "UV Exposure-Like (SBS7 / CC>TT)",
+            short_tag="UV-like (C>T + CC>TT)" if has_cc_tt else "UV-like (C>T)",
+            badge_color="#D55E00",
+            detail=(
+                f"Strong C>T transition bias ({c_t_frac:.0%}, {c_t_cnt}/{n_snvs} SNVs){dnp_note}, "
+                f"characteristic of UV radiation exposure (SBS7-like; typical of cutaneous primaries).{alt_note}"
+            ),
+            confidence_note=conf_note,
+            counts=counts,
+            fractions=fractions,
+        )
+
+    if (c_a_frac >= 0.45 and c_a_cnt >= 3) or (c_a_frac >= 0.40 and c_a_cnt >= 4):
+        return SBS6Interpretation(
+            evaluable=True,
+            n_snvs=n_snvs,
+            ti_tv_ratio=ti_tv,
+            dominant_class="C>A",
+            dominant_count=c_a_cnt,
+            dominant_fraction=round(c_a_frac, 4),
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="TOBACCO_LIKE",
+            label="Tobacco Smoke-Like (SBS4 / C>A)",
+            short_tag="Tobacco-like (C>A)",
+            badge_color="#0072B2",
+            detail=(
+                f"C>A transversion dominance ({c_a_frac:.0%}, {c_a_cnt}/{n_snvs} SNVs), "
+                "characteristic of tobacco smoke exposure (SBS4-like; common in lung and head & neck cancers; "
+                "also seen with oxidative stress / MUTYH or POLE)."
+            ),
+            confidence_note=conf_note,
+            counts=counts,
+            fractions=fractions,
+        )
+
+    if (c_t_frac + c_g_frac) >= 0.70 and c_g_frac >= 0.25 and c_g_cnt >= 2 and c_t_cnt >= 2:
+        return SBS6Interpretation(
+            evaluable=True,
+            n_snvs=n_snvs,
+            ti_tv_ratio=ti_tv,
+            dominant_class=dom_cls,
+            dominant_count=dom_cnt,
+            dominant_fraction=round(dom_frac, 4),
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="APOBEC_LIKE",
+            label="APOBEC-Like (SBS2/13 / C>T & C>G)",
+            short_tag="APOBEC-like",
+            badge_color="#334155",
+            detail=(
+                f"Combined C>T ({c_t_frac:.0%}) and C>G ({c_g_frac:.0%}) enrichment "
+                f"({c_t_cnt + c_g_cnt}/{n_snvs} SNVs), consistent with APOBEC cytidine deaminase activity "
+                "(SBS2/13-like; seen in bladder, breast, head & neck, lung, and gynecological tumors)."
+            ),
+            confidence_note=conf_note,
+            counts=counts,
+            fractions=fractions,
+        )
+
+    if t_a_frac >= 0.45 and t_a_cnt >= 3:
+        return SBS6Interpretation(
+            evaluable=True,
+            n_snvs=n_snvs,
+            ti_tv_ratio=ti_tv,
+            dominant_class="T>A",
+            dominant_count=t_a_cnt,
+            dominant_fraction=round(t_a_frac, 4),
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="TA_ENRICHED",
+            label="T>A-Enriched (SBS22-Like)",
+            short_tag="T>A-enriched",
+            badge_color="#64748B",
+            detail=(
+                f"T>A transversion enrichment ({t_a_frac:.0%}, {t_a_cnt}/{n_snvs} SNVs), "
+                "suggestive of aristolochic acid or related mutagen exposure (SBS22-like; "
+                "reported in urothelial, renal, and hepatocellular tumors)."
+            ),
+            confidence_note=conf_note,
+            counts=counts,
+            fractions=fractions,
+        )
+
+    if t_c_frac >= 0.45 and t_c_cnt >= 3:
+        return SBS6Interpretation(
+            evaluable=True,
+            n_snvs=n_snvs,
+            ti_tv_ratio=ti_tv,
+            dominant_class="T>C",
+            dominant_count=t_c_cnt,
+            dominant_fraction=round(t_c_frac, 4),
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="TC_ENRICHED",
+            label="T>C-Enriched (SBS5/16-Like)",
+            short_tag="T>C-enriched",
+            badge_color="#009E73",
+            detail=(
+                f"T>C transition enrichment ({t_c_frac:.0%}, {t_c_cnt}/{n_snvs} SNVs), "
+                "associated with clock-like SBS5, liver/alcohol-associated SBS16, or MMR deficiency."
+            ),
+            confidence_note=conf_note,
+            counts=counts,
+            fractions=fractions,
+        )
+
+    if c_t_frac >= 0.55 and c_t_cnt >= 3:
+        return SBS6Interpretation(
+            evaluable=True,
+            n_snvs=n_snvs,
+            ti_tv_ratio=ti_tv,
+            dominant_class="C>T",
+            dominant_count=c_t_cnt,
+            dominant_fraction=round(c_t_frac, 4),
+            has_cc_tt_dnp=has_cc_tt,
+            pattern_code="CT_DEAMINATION",
+            label="C>T-Predominant (Deamination / SBS1-Like)",
+            short_tag="C>T-enriched",
+            badge_color="#E69F00",
+            detail=(
+                f"C>T transitions account for {c_t_frac:.0%} ({c_t_cnt}/{n_snvs}) of panel SNVs, "
+                "most commonly reflecting age-related 5mC deamination (SBS1-like); "
+                "consider UV (SBS7) or MMR deficiency in higher-burden tumors."
+            ),
+            confidence_note=conf_note,
+            counts=counts,
+            fractions=fractions,
+        )
+
+    titv_txt = f"{ti_tv:.2f}" if ti_tv is not None else "N/A"
+    return SBS6Interpretation(
+        evaluable=True,
+        n_snvs=n_snvs,
+        ti_tv_ratio=ti_tv,
+        dominant_class=dom_cls,
+        dominant_count=dom_cnt,
+        dominant_fraction=round(dom_frac, 4),
+        has_cc_tt_dnp=has_cc_tt,
+        pattern_code="MIXED",
+        label="Mixed / Non-Specific Spectrum",
+        short_tag="Mixed",
+        badge_color="#64748B",
+        detail=(
+            f"No single dominant exogenous mutagen signature ({n_snvs} panel SNVs; "
+            f"largest class {dom_cls} at {dom_frac:.0%}, Ti/Tv = {titv_txt})."
+        ),
+        confidence_note=conf_note,
+        counts=counts,
+        fractions=fractions,
+    )

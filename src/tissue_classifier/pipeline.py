@@ -14,6 +14,7 @@ from .config import ModelSpec, PipelineConfig, ReferenceData
 from .prediction.explainer import SHAPExplainer, Top3SHAPResult
 from .prediction.predictor import PredictionResult, TissuePredictor
 from .preprocessing.compiler import CompilationResult, compile_sample_features
+from .reporting.formatting import format_model_mode, interpret_sbs6_spectrum
 from .reporting.html_report import generate_html_report
 from .reporting.pdf_report import generate_pdf_report
 
@@ -126,12 +127,23 @@ def run_pipeline(
         )
 
     # Write prediction.json
+    sbs_interp = interpret_sbs6_spectrum(comp.spectrum_df, comp.maf_result.usable_maf)
+    pred_dict = prediction.to_dict() if prediction is not None else None
+    if pred_dict is not None:
+        pred_dict["model_display_name"] = format_model_mode(comp.active_model_mode)
+
     pred_payload: dict[str, Any] = {
+        "model_name": "TOPO",
         "version": __version__,
+        "intended_use": "For Research Use Only — Not for Diagnostic Use",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
         "sample_id": config.sample_id,
         "status": comp.status,
         "active_model_mode": comp.active_model_mode,
+        "model_mode_display": format_model_mode(
+            comp.active_model_mode,
+            is_no_call=(comp.status == "TECHNICAL_NO_CALL" or prediction is None),
+        ),
         "allow_no_cna": config.allow_no_cna,
         "no_call_reason": comp.no_call_reason,
         "diagnostic_message": comp.diagnostic_message,
@@ -153,17 +165,8 @@ def run_pipeline(
             ),
             "sbs6_snp_count": int(comp.spectrum_df["Spectrum_SNP_Count"].iloc[0]),
         },
-        "fold_compatibility": [
-            {
-                "fold": r.fold,
-                "compatible_primary": r.compatible_primary,
-                "compatible_active": r.compatible_active,
-                "n_compiled_features": r.n_compiled_features,
-                "unsupported_missing_features": r.unsupported_missing_features,
-            }
-            for r in comp.fold_audit
-        ],
-        "prediction": prediction.to_dict() if prediction is not None else None,
+        "sbs6_interpretation": sbs_interp.to_dict(),
+        "prediction": pred_dict,
         "shap": shap_result.to_summary_dict() if shap_result is not None else None,
     }
     if config.true_tumor_type is not None:

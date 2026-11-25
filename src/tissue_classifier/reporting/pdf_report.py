@@ -1,4 +1,4 @@
-"""Multi-page vector PDF clinical & molecular report generator for V20 tissue-classifier."""
+"""Multi-page vector PDF clinical & molecular report generator for TOPO."""
 
 from __future__ import annotations
 
@@ -11,9 +11,8 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
-from matplotlib.patches import FancyBboxPatch
+from matplotlib.patches import FancyBboxPatch, Patch
 import numpy as np
-import pandas as pd
 
 from .. import __version__
 from ..config import PipelineConfig, TISSUE_DISPLAY_NAMES
@@ -21,11 +20,15 @@ from ..prediction.explainer import ClassSHAPExplanation, Top3SHAPResult
 from ..prediction.predictor import PredictionResult
 from ..preprocessing.compiler import CompilationResult
 from .formatting import (
-    MODALITY_COLORS,
     OKABE_ITO,
+    SBS6Interpretation,
     apply_report_rcparams,
+    format_model_mode,
+    format_model_tag,
     format_tissue_name,
+    interpret_sbs6_spectrum,
 )
+from .logo import draw_topo_svg
 
 PAGE_WIDTH = 8.5
 PAGE_HEIGHT = 11.0
@@ -53,32 +56,58 @@ def _new_page(
     bg.set_xticks([])
     bg.set_yticks([])
 
-    bg.text(
-        0.06,
-        0.962,
-        "Tissue-of-Origin RealMLP + TabM Molecular Report",
-        fontsize=9.3,
-        fontweight="bold",
-        color="#0F172A",
-        va="center",
-        ha="left",
-    )
-    bg.text(
-        0.94,
-        0.962,
-        f"Sample: {sample_id[:34]}   |   Page {page_num} of {total_pages}",
-        fontsize=7.8,
-        color="#475569",
-        va="center",
-        ha="right",
-    )
-    bg.plot([0.06, 0.94], [0.947, 0.947], color="#CBD5E1", lw=0.9)
+    if page_num == 1:
+        # Full TOPO logotype lockup on Page 1 header
+        draw_topo_svg(fig, [0.058, 0.928, 0.235, 0.058], variant="logo", include_subtitle=True)
+        bg.text(
+            0.94,
+            0.968,
+            "Clinical & Molecular Report",
+            fontsize=10.5,
+            fontweight="bold",
+            color="#0F172A",
+            va="center",
+            ha="right",
+        )
+        bg.text(
+            0.94,
+            0.944,
+            f"Sample: {sample_id[:34]}   |   Page {page_num} of {total_pages}",
+            fontsize=7.8,
+            color="#475569",
+            va="center",
+            ha="right",
+        )
+        bg.plot([0.06, 0.94], [0.920, 0.920], color="#CBD5E1", lw=0.95)
+    else:
+        # Compact TOPO icon + running title on continuation pages
+        draw_topo_svg(fig, [0.058, 0.952, 0.036, 0.029], variant="icon", include_subtitle=False)
+        bg.text(
+            0.097,
+            0.965,
+            "TOPO — Clinical & Molecular Report",
+            fontsize=9.2,
+            fontweight="bold",
+            color="#0F172A",
+            va="center",
+            ha="left",
+        )
+        bg.text(
+            0.94,
+            0.965,
+            f"Sample: {sample_id[:34]}   |   Page {page_num} of {total_pages}",
+            fontsize=7.8,
+            color="#475569",
+            va="center",
+            ha="right",
+        )
+        bg.plot([0.06, 0.94], [0.947, 0.947], color="#CBD5E1", lw=0.9)
 
     bg.plot([0.06, 0.94], [0.038, 0.038], color="#CBD5E1", lw=0.8)
     bg.text(
         0.06,
         0.023,
-        f"tissue-classifier v{__version__}  •  {model_tag}  •  Generated {timestamp}",
+        f"TOPO v{__version__}  •  {model_tag}  •  Generated {timestamp}",
         fontsize=7.3,
         color="#64748B",
         va="center",
@@ -87,7 +116,7 @@ def _new_page(
     bg.text(
         0.94,
         0.023,
-        "Research & Clinical Decision-Support Report",
+        "For Research Use Only — Not for Diagnostic Use",
         fontsize=7.3,
         color="#64748B",
         va="center",
@@ -244,7 +273,6 @@ def draw_shap_waterfall_ax(
     ax.spines["left"].set_color("#CBD5E1")
     ax.spines["bottom"].set_color("#94A3B8")
 
-    # Put E[f(X)] at bottom-right/axis label and P(class) in title so they never collide
     ax.set_xlabel(
         f"Calibrated Probability Scale   (Background Prior E[f(X)] = {base:.3f}  →  "
         f"Calibrated P = {pred:.3f})",
@@ -274,6 +302,7 @@ def _render_page1_summary(
     config: PipelineConfig,
     comp: CompilationResult,
     prediction: Optional[PredictionResult],
+    sbs_interp: SBS6Interpretation,
     timestamp: str,
     model_tag: str,
     total_pages: int,
@@ -282,39 +311,29 @@ def _render_page1_summary(
     canvas = fig.axes[0]
 
     # 1. Sample Metadata Header Card
-    _draw_card(canvas, 0.06, 0.858, 0.88, 0.076, facecolor="#F8FAFC", edgecolor="#CBD5E1")
+    _draw_card(canvas, 0.06, 0.836, 0.88, 0.072, facecolor="#F8FAFC", edgecolor="#CBD5E1")
     genome_str = "hg19 (GRCh37)" if config.genome == "hg19" else "hg38 → hg19 (pyliftover)"
-    age_str = f"{config.age:.0f} yr" if config.age is not None else "Not provided (imputed)"
-    sex_str = config.sex if config.sex is not None else "Not provided (imputed)"
-    mode_str = (
-        "Primary 50% Blend (with CNA)"
-        if comp.active_model_mode == "primary_50pct_blend"
-        else (
-            "Fallback Without CNA (--allow-no-cna)"
-            if comp.active_model_mode == "fallback_without_cna"
-            else "Technical No-Call Guard"
-        )
+    age_str = f"{config.age:.0f} yr" if config.age is not None else "Imputed"
+    sex_str = config.sex if config.sex is not None else "Imputed"
+    mode_str = format_model_mode(
+        comp.active_model_mode,
+        is_no_call=(comp.status == "TECHNICAL_NO_CALL" or prediction is None),
     )
-    n_compat = sum(1 for r in comp.fold_audit if r.compatible_active)
 
     meta_items = [
-        (0.075, 0.178, 0.910, "Sample ID", config.sample_id[:28]),
-        (0.075, 0.178, 0.878, "Genome Build", genome_str),
-        (0.415, 0.502, 0.910, "Age / Sex", f"{age_str}  /  {sex_str}"),
-        (0.415, 0.502, 0.878, "Model Mode", mode_str),
+        (0.075, 0.188, 0.887, "Sample ID", config.sample_id[:26]),
+        (0.075, 0.188, 0.857, "Genome Build", genome_str),
+        (0.405, 0.505, 0.887, "Age / Sex", f"{age_str}  /  {sex_str}"),
+        (0.405, 0.505, 0.857, "Model Mode", mode_str),
+        (0.735, 0.835, 0.887, "Report Date", timestamp[:10]),
         (
-            0.715,
-            0.818,
-            0.910,
-            "Fold Compat.",
-            f"{n_compat} / 5 folds" if comp.fold_audit else "Pre-fold gate",
-        ),
-        (
-            0.715,
-            0.818,
-            0.878,
-            "True Origin" if config.true_tumor_type else "Report Date",
-            format_tissue_name(config.true_tumor_type) if config.true_tumor_type else timestamp[:10],
+            0.735,
+            0.835,
+            0.857,
+            "True Origin" if config.true_tumor_type else "Model",
+            format_tissue_name(config.true_tumor_type)
+            if config.true_tumor_type
+            else f"TOPO v{__version__}",
         ),
     ]
     for x_lbl, x_val, y_pos, k_lbl, v_lbl in meta_items:
@@ -326,7 +345,7 @@ def _render_page1_summary(
         _draw_card(
             canvas,
             0.06,
-            0.615,
+            0.595,
             0.88,
             0.225,
             facecolor="#FEF2F2",
@@ -335,8 +354,8 @@ def _render_page1_summary(
         )
         canvas.text(
             0.085,
-            0.808,
-            "TECHNICAL NO-CALL — PREDICTION WITHHELD BY V20 QUALITY GATE",
+            0.788,
+            "TECHNICAL NO-CALL — PREDICTION WITHHELD BY TOPO QUALITY GATE",
             fontsize=11.0,
             fontweight="bold",
             color="#991B1B",
@@ -344,7 +363,7 @@ def _render_page1_summary(
         )
         canvas.text(
             0.085,
-            0.775,
+            0.755,
             f"Reason Code:  {comp.no_call_reason}",
             fontsize=9.5,
             fontweight="bold",
@@ -354,7 +373,7 @@ def _render_page1_summary(
         wrapped_msg = "\n".join(textwrap.wrap(comp.diagnostic_message or "", width=95))
         canvas.text(
             0.085,
-            0.735,
+            0.715,
             wrapped_msg,
             fontsize=8.3,
             color="#1E293B",
@@ -363,15 +382,15 @@ def _render_page1_summary(
         )
         remediation = (
             "Recommended Action: Supply a matched non-overlapping hg19/hg38 copy-number segmentation (.seg) file "
-            "covering autosomal chromosomes, or pass --allow-no-cna to explicitly invoke the retrained V20 CNA-free "
-            "fallback ensemble (71.3% internal / 63.0% external VICC accuracy)."
+            "covering autosomal chromosomes, or pass --allow-no-cna to explicitly invoke the TOPO CNA-free "
+            "fallback model."
             if comp.no_call_reason == "MISSING_OR_INCOMPATIBLE_CNA"
             else "Recommended Action: Verify somatic variant filtering, genome build (--genome hg19 vs hg38), and "
             "coverage across the shared 274-gene panel target regions."
         )
         canvas.text(
             0.085,
-            0.655,
+            0.635,
             "\n".join(textwrap.wrap(remediation, width=98)),
             fontsize=8.0,
             color="#475569",
@@ -381,18 +400,18 @@ def _render_page1_summary(
         )
 
         # Input Modality QC Table on lower half of No-Call Page 1
-        _draw_qc_card(canvas, comp, config, prediction=None, x=0.06, y=0.26, w=0.88, h=0.32)
+        _draw_qc_card(canvas, comp, config, sbs_interp, x=0.06, y=0.25, w=0.88, h=0.31)
         pdf.savefig(fig)
         plt.close(fig)
         return
 
     # CALLABLE Page 1
-    cursor_top = 0.842
+    cursor_top = 0.820
     if comp.fallback_warning:
         _draw_card(
             canvas,
             0.06,
-            0.772,
+            0.750,
             0.88,
             0.068,
             facecolor="#FFFBEB",
@@ -401,8 +420,8 @@ def _render_page1_summary(
         )
         canvas.text(
             0.08,
-            0.822,
-            "WARNING — NO-CNA FALLBACK ENSEMBLE ACTIVE (--allow-no-cna)",
+            0.800,
+            "WARNING — TOPO NO-CNA FALLBACK MODEL ACTIVE (--allow-no-cna)",
             fontsize=8.8,
             fontweight="bold",
             color="#92400E",
@@ -411,14 +430,14 @@ def _render_page1_summary(
         warn_lines = "\n".join(textwrap.wrap(comp.fallback_warning, width=106))
         canvas.text(
             0.08,
-            0.802,
+            0.780,
             warn_lines,
             fontsize=7.5,
             color="#78350F",
             va="top",
             linespacing=1.28,
         )
-        cursor_top = 0.758
+        cursor_top = 0.736
 
     # Prominent Prediction & Policy Tier Callout Card
     card_h = 0.118
@@ -504,11 +523,11 @@ def _render_page1_summary(
     )
 
     # Middle Section: Left = Top-3 Horizontal Bar Chart, Right = Modality QC Summary Card
-    mid_top = card_y - 0.022
-    mid_h = 0.245
+    mid_top = card_y - 0.020
+    mid_h = 0.225
     mid_y = mid_top - mid_h
 
-    ax_top3 = fig.add_axes([0.20, mid_y + 0.035, 0.27, mid_h - 0.065])
+    ax_top3 = fig.add_axes([0.20, mid_y + 0.032, 0.27, mid_h - 0.060])
     ranks_rev = list(reversed(prediction.top3))
     y_pos = np.arange(len(ranks_rev))
     probs_rev = [c.probability for c in ranks_rev]
@@ -544,7 +563,7 @@ def _render_page1_summary(
     ax_top3.set_title("Top-3 Candidate Differential", loc="left", fontsize=9.2, pad=6)
     ax_top3.set_xlabel("Calibrated Probability", fontsize=7.8)
 
-    _draw_qc_card(canvas, comp, config, prediction=prediction, x=0.51, y=mid_y, w=0.43, h=mid_h)
+    _draw_qc_card(canvas, comp, config, sbs_interp, x=0.51, y=mid_y, w=0.43, h=mid_h)
 
     # Bottom Section: Full 22-Class Calibrated Probability Bar Chart
     bot_y = 0.124
@@ -553,7 +572,7 @@ def _render_page1_summary(
     sorted_items = sorted(prediction.all_probabilities.items(), key=lambda kv: -kv[1])
     cls_codes = [k for k, _ in sorted_items]
     cls_probs = [v for _, v in sorted_items]
-    cls_Short = [TISSUE_DISPLAY_NAMES.get(k, k) for k in cls_codes]
+    cls_short = [TISSUE_DISPLAY_NAMES.get(k, k) for k in cls_codes]
     colors_22 = [
         OKABE_ITO["blue"] if i == 0 else ("#56B4E9" if i < 3 else "#CBD5E1")
         for i in range(len(cls_codes))
@@ -562,14 +581,14 @@ def _render_page1_summary(
     ax_all.bar(x22, cls_probs, width=0.68, color=colors_22, edgecolor="#64748B", linewidth=0.35)
     ax_all.set_ylim(0, max(max(cls_probs) * 1.18, 0.25))
     ax_all.set_xticks(x22)
-    ax_all.set_xticklabels(cls_Short, rotation=38, ha="right", rotation_mode="anchor", fontsize=6.6)
+    ax_all.set_xticklabels(cls_short, rotation=38, ha="right", rotation_mode="anchor", fontsize=6.6)
     ax_all.set_ylabel("Calibrated P", fontsize=7.8)
     ax_all.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax_all.grid(axis="y", linestyle=":", alpha=0.35)
     ax_all.spines["top"].set_visible(False)
     ax_all.spines["right"].set_visible(False)
     ax_all.set_title(
-        "All 22 Tumor Classes — Calibrated Ensemble Probability Distribution",
+        "All 22 Tumor Classes — TOPO Calibrated Probability Distribution",
         loc="left",
         fontsize=9.2,
         pad=5,
@@ -595,7 +614,7 @@ def _draw_qc_card(
     canvas: plt.Axes,
     comp: CompilationResult,
     config: PipelineConfig,
-    prediction: Optional[PredictionResult],
+    sbs_interp: SBS6Interpretation,
     x: float,
     y: float,
     w: float,
@@ -625,25 +644,18 @@ def _draw_qc_card(
             f"({comp.cna_result.observed_bin_fraction:.1%} bins)"
         )
     elif comp.seg_result.supplied:
-        cna_str = f"Invalid ({(comp.seg_result.error_reason or '')[:26]})"
+        cna_str = f"Invalid ({(comp.seg_result.error_reason or '')[:24]})"
     else:
         cna_str = "Not supplied"
 
-    snv_cnt = int(comp.spectrum_df["Spectrum_SNP_Count"].iloc[0])
-    spec_str = f"Active ({snv_cnt} SNVs)" if snv_cnt >= 4 else f"<4 SNVs ({snv_cnt}; indicator set)"
+    if sbs_interp.evaluable:
+        spec_str = f"{sbs_interp.n_snvs} SNVs — {sbs_interp.short_tag}"
+    else:
+        spec_str = f"<4 SNVs ({sbs_interp.n_snvs}; not evaluable)"
+
     clin_str = (
-        f"Age={'Yes' if config.age is not None else 'Imp'}, "
-        f"Sex={'Yes' if config.sex is not None else 'Imp'}"
-    )
-    ens_str = (
-        (
-            f"{len(comp.active_model_spec.views) * 2 * comp.active_model_spec.n_folds} nets (2xRealMLP+2xTabM), "
-            f"LogitPool α={comp.active_model_spec.alpha_balanced:.2f}, VecScale"
-            if comp.active_model_spec.views
-            else f"10 nets, α=0.50, T={comp.active_model_spec.temperature:.3f}"
-        )
-        if (prediction is not None and comp.active_model_spec is not None)
-        else "Withheld (No-Call Gate)"
+        f"Age={'Yes' if config.age is not None else 'Imputed'}, "
+        f"Sex={'Yes' if config.sex is not None else 'Imputed'}"
     )
 
     rows = [
@@ -652,14 +664,13 @@ def _draw_qc_card(
         ("Copy Number", cna_str),
         ("SBS-6 Spectrum", spec_str),
         ("Clinical", clin_str),
-        ("Ensemble", ens_str),
     ]
-    step = (h - 0.052) / len(rows)
+    step = (h - 0.056) / len(rows)
     for idx, (rk, rv) in enumerate(rows):
-        ry = y + h - 0.054 - idx * step
+        ry = y + h - 0.058 - idx * step
         canvas.text(x + 0.02, ry, rk + ":", fontsize=7.4, fontweight="bold", color="#475569", va="center")
         val_color = "#B45309" if "WARN" in rv or "Invalid" in rv or "Not supplied" in rv else "#0F172A"
-        canvas.text(x + 0.155, ry, rv, fontsize=7.4, color=val_color, va="center")
+        canvas.text(x + 0.155, ry, rv[:38], fontsize=7.4, color=val_color, va="center")
 
 
 def _render_page2_rank1_shap(
@@ -686,9 +697,8 @@ def _render_page2_rank1_shap(
     canvas.text(
         0.06,
         0.903,
-        f"Coherent 5-fold PermutationSHAP ({shap_res.background_donors} development donors, "
-        f"{shap_res.permutations} antithetic cycles; max 22-class additivity residual = "
-        f"{shap_res.max_additivity_residual:.2e}).",
+        f"TOPO PermutationSHAP attribution ({shap_res.background_donors} development background donors, "
+        f"{shap_res.permutations} antithetic cycles).",
         fontsize=7.6,
         color="#475569",
         va="center",
@@ -697,7 +707,7 @@ def _render_page2_rank1_shap(
     ax_wf = fig.add_axes([0.365, 0.435, 0.565, 0.430])
     draw_shap_waterfall_ax(ax_wf, exp1, max_display=15, title_prefix="Rank #1: ")
 
-    # Modality net attribution mini-summary card (bottom-left) & Top Evidence Table (bottom)
+    # Key Supporting (+) & Counter-Evidence (-) Features Card
     _draw_card(canvas, 0.06, 0.055, 0.88, 0.320, facecolor="#F8FAFC", edgecolor="#CBD5E1")
     canvas.text(
         0.08,
@@ -708,7 +718,14 @@ def _render_page2_rank1_shap(
         color="#0F172A",
         va="center",
     )
-    # Net modality summary line
+    # Compact Net Modality ΔP summary line sized to fit cleanly inside card boundaries
+    short_mod_names = {
+        "Copy Number (CNA)": "CNA",
+        "Somatic Mutations": "Mutations",
+        "Structural Variants": "SVs",
+        "SBS-6 Spectrum": "SBS-6",
+        "Clinical (Age/Sex)": "Clinical",
+    }
     mod_parts = []
     for mod_label in [
         "Copy Number (CNA)",
@@ -718,13 +735,12 @@ def _render_page2_rank1_shap(
         "Clinical (Age/Sex)",
     ]:
         m_val = exp1.modality_totals.get(mod_label, 0.0)
-        short_m = mod_label.split(" (")[0]
-        mod_parts.append(f"{short_m}: {m_val:+.3f}")
+        mod_parts.append(f"{short_mod_names[mod_label]}: {m_val:+.3f}")
     canvas.text(
         0.08,
         0.330,
-        "Net Modality ΔP:   " + "   |   ".join(mod_parts),
-        fontsize=7.3,
+        "Net Modality ΔP:  " + "  |  ".join(mod_parts),
+        fontsize=7.2,
         color="#334155",
         va="center",
     )
@@ -814,11 +830,11 @@ def _render_page3_rank2_rank3_shap(
     plt.close(fig)
 
 
-def _render_page4_molecular_and_qc(
+def _render_page4_molecular_profile(
     pdf: PdfPages,
     config: PipelineConfig,
     comp: CompilationResult,
-    shap_res: Optional[Top3SHAPResult],
+    sbs_interp: SBS6Interpretation,
     timestamp: str,
     model_tag: str,
     page_num: int,
@@ -830,19 +846,19 @@ def _render_page4_molecular_and_qc(
     canvas.text(
         0.06,
         0.922,
-        "Sample Molecular Profile & 5-Fold Technical Compatibility Audit",
-        fontsize=10.2,
+        "Sample Molecular Profile",
+        fontsize=10.4,
         fontweight="bold",
         color="#0F172A",
         va="center",
     )
 
     # 1. Top-Left Card: Detected Somatic Mutations in 274-Gene Panel
-    _draw_card(canvas, 0.06, 0.605, 0.51, 0.298, facecolor="#F8FAFC", edgecolor="#CBD5E1")
+    _draw_card(canvas, 0.06, 0.625, 0.55, 0.273, facecolor="#F8FAFC", edgecolor="#CBD5E1")
     maf = comp.maf_result.usable_maf
     canvas.text(
         0.078,
-        0.880,
+        0.876,
         f"Usable Somatic Mutations in 274-Gene Panel (n = {len(maf)})",
         fontsize=8.6,
         fontweight="bold",
@@ -850,17 +866,17 @@ def _render_page4_molecular_and_qc(
         va="center",
     )
     m_headers = ["Gene", "Locus / Allele", "Classification"]
-    m_x = [0.078, 0.185, 0.385]
+    m_x = [0.078, 0.190, 0.425]
     for cx, ht in zip(m_x, m_headers):
-        canvas.text(cx, 0.855, ht, fontsize=7.2, fontweight="bold", color="#475569", va="center")
-    canvas.plot([0.075, 0.555], [0.843, 0.843], color="#CBD5E1", lw=0.6)
+        canvas.text(cx, 0.852, ht, fontsize=7.2, fontweight="bold", color="#475569", va="center")
+    canvas.plot([0.075, 0.595], [0.840, 0.840], color="#CBD5E1", lw=0.6)
 
     if maf.empty:
-        canvas.text(0.078, 0.815, "0 usable somatic mutations in target domain.", fontsize=7.6, color="#64748B")
+        canvas.text(0.078, 0.812, "0 usable somatic mutations in target domain.", fontsize=7.6, color="#64748B")
     else:
-        max_m = 10
+        max_m = 9
         for idx, (_, r) in enumerate(maf.head(max_m).iterrows()):
-            ry = 0.826 - idx * 0.020
+            ry = 0.822 - idx * 0.020
             gene = str(r["Hugo_Symbol"])[:11]
             hgvsp = ""
             for hcol in ("HGVSp_Short", "HGVSp"):
@@ -868,18 +884,18 @@ def _render_page4_molecular_and_qc(
                     hgvsp = str(r[hcol]).strip()
                     break
             locus = (
-                hgvsp[:20]
+                hgvsp[:24]
                 if hgvsp
                 else f"chr{r['Chromosome']}:{r['Start_Position']} {str(r['Reference_Allele'])[:3]}>{str(r['Tumor_Seq_Allele2'])[:3]}"
             )
             vcls = str(r["Variant_Classification"]).replace("_Mutation", "").replace("_", " ")[:19]
             canvas.text(m_x[0], ry, gene, fontsize=7.1, fontweight="bold", color="#0F172A", va="center")
-            canvas.text(m_x[1], ry, locus[:22], fontsize=7.0, color="#334155", va="center")
+            canvas.text(m_x[1], ry, locus[:25], fontsize=7.0, color="#334155", va="center")
             canvas.text(m_x[2], ry, vcls, fontsize=7.0, color="#475569", va="center")
         if len(maf) > max_m:
             canvas.text(
                 0.078,
-                0.618,
+                0.638,
                 f"+ {len(maf) - max_m} additional usable panel variants not shown.",
                 fontsize=7.0,
                 style="italic",
@@ -887,73 +903,191 @@ def _render_page4_molecular_and_qc(
                 va="center",
             )
 
-    # 2. Top-Right Upper: Detected Structural Variants
-    _draw_card(canvas, 0.59, 0.785, 0.35, 0.118, facecolor="#F8FAFC", edgecolor="#CBD5E1")
+    # 2. Top-Right Card: Detected Structural Variants
+    _draw_card(canvas, 0.63, 0.625, 0.31, 0.273, facecolor="#F8FAFC", edgecolor="#CBD5E1")
     sv_df = comp.sv_result.usable_sv
     canvas.text(
-        0.608,
-        0.882,
+        0.648,
+        0.876,
         f"Structural Variants (n = {len(sv_df)})",
-        fontsize=8.5,
+        fontsize=8.6,
         fontweight="bold",
         color="#0F172A",
         va="center",
     )
+    canvas.plot([0.645, 0.925], [0.858, 0.858], color="#CBD5E1", lw=0.6)
     if not comp.sv_result.supplied:
         canvas.text(
-            0.608,
-            0.842,
+            0.648,
+            0.822,
             "SV file not supplied (--sv omitted);\ntreated as 0 observed SVs.",
-            fontsize=7.3,
+            fontsize=7.4,
             color="#B45309",
-            va="center",
+            va="top",
+            linespacing=1.35,
         )
     elif sv_df.empty:
         canvas.text(
-            0.608,
-            0.842,
-            "0 usable somatic SVs in 274-gene panel.",
+            0.648,
+            0.822,
+            "0 usable somatic SVs detected\nin 274-gene panel.",
             fontsize=7.4,
             color="#64748B",
-            va="center",
+            va="top",
+            linespacing=1.35,
         )
     else:
-        for idx, (_, sr) in enumerate(sv_df.head(4).iterrows()):
-            ry = 0.855 - idx * 0.019
+        max_sv = 9
+        for idx, (_, sr) in enumerate(sv_df.head(max_sv).iterrows()):
+            ry = 0.838 - idx * 0.021
             lbl = str(sr["SV_Label"])
             sv_cls = str(sr.get("Class", "SV")).strip() or "SV"
             canvas.text(
-                0.608,
+                0.648,
                 ry,
-                f"• {lbl[:24]}  ({sv_cls[:12]})",
+                f"• {lbl[:20]} ({sv_cls[:10]})",
                 fontsize=7.2,
                 fontweight="bold",
                 color="#009E73",
                 va="center",
             )
+        if len(sv_df) > max_sv:
+            canvas.text(
+                0.648,
+                0.638,
+                f"+ {len(sv_df) - max_sv} additional SVs not shown.",
+                fontsize=7.0,
+                style="italic",
+                color="#64748B",
+                va="center",
+            )
 
-    # 3. Top-Right Lower: SBS-6 Spectrum Bar Chart
-    ax_sbs = fig.add_axes([0.64, 0.625, 0.285, 0.115])
+    # 3. Middle Card: SBS-6 Mutational Spectrum & Etiology Interpretation
+    _draw_card(canvas, 0.06, 0.372, 0.88, 0.230, facecolor="#F8FAFC", edgecolor="#CBD5E1")
+    canvas.text(
+        0.078,
+        0.582,
+        "SBS-6 Mutational Spectrum & Putative Etiology Interpretation",
+        fontsize=8.8,
+        fontweight="bold",
+        color="#0F172A",
+        va="center",
+    )
+
+    ax_sbs = fig.add_axes([0.115, 0.408, 0.355, 0.138])
     sbs_labels = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"]
-    sbs_counts = [
-        float(comp.spectrum_df[f"{c.replace('>', '_')}_Count"].iloc[0]) for c in sbs_labels
-    ]
+    sbs_counts = [float(sbs_interp.counts[c]) for c in sbs_labels]
     sbs_colors = ["#56B4E9", "#334155", "#D55E00", "#94A3B8", "#009E73", "#CC79A7"]
-    ax_sbs.bar(np.arange(6), sbs_counts, width=0.62, color=sbs_colors)
+    bars = ax_sbs.bar(np.arange(6), sbs_counts, width=0.60, color=sbs_colors)
     ax_sbs.set_xticks(np.arange(6))
-    ax_sbs.set_xticklabels(sbs_labels, fontsize=7.0)
-    ax_sbs.set_ylim(0, max(max(sbs_counts) * 1.28, 1.0))
-    ax_sbs.set_ylabel("SNVs", fontsize=7.2)
-    ax_sbs.tick_params(axis="y", labelsize=6.8)
+    ax_sbs.set_xticklabels(sbs_labels, fontsize=7.4, fontweight="bold", color="#1E293B")
+    ymax_sbs = max(max(sbs_counts) * 1.32, 1.0)
+    ax_sbs.set_ylim(0, ymax_sbs)
+    ax_sbs.set_ylabel("SNV Count", fontsize=7.4)
+    ax_sbs.tick_params(axis="y", labelsize=7.0)
+    ax_sbs.set_facecolor("#F8FAFC")
+    ax_sbs.grid(axis="y", linestyle=":", alpha=0.35)
     ax_sbs.spines["top"].set_visible(False)
     ax_sbs.spines["right"].set_visible(False)
-    titv = comp.spectrum_df["Ti_Tv_Ratio"].iloc[0]
-    titv_str = f"Ti/Tv={titv:.2f}" if np.isfinite(titv) else "<4 SNVs"
-    ax_sbs.set_title(f"SBS-6 Spectrum ({titv_str})", loc="left", fontsize=8.2, pad=4)
+    for bar, cnt in zip(bars, sbs_counts):
+        if cnt > 0:
+            ax_sbs.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                cnt + ymax_sbs * 0.03,
+                f"{int(round(cnt))}",
+                ha="center",
+                va="bottom",
+                fontsize=7.2,
+                fontweight="bold",
+                color="#0F172A",
+            )
 
-    # 4. Middle: Chromosome-Level CNA Profile (chr1..chr22, chrX)
+    # Right half of SBS-6 Card: Interpretation Badge + Details
+    interp_x = 0.505
+    badge_w = 0.415
+    badge_h = 0.028
+    _draw_card(
+        canvas,
+        interp_x,
+        0.528,
+        badge_w,
+        badge_h,
+        facecolor=sbs_interp.badge_color,
+        edgecolor=sbs_interp.badge_color,
+        lw=0.4,
+        rounding=0.008,
+    )
+    canvas.text(
+        interp_x + 0.014,
+        0.528 + badge_h / 2.0,
+        sbs_interp.label.upper(),
+        fontsize=7.5,
+        fontweight="bold",
+        color="white",
+        va="center",
+        ha="left",
+    )
+
+    titv_str = f"{sbs_interp.ti_tv_ratio:.2f}" if sbs_interp.ti_tv_ratio is not None else "N/A"
+    if sbs_interp.evaluable and sbs_interp.dominant_class is not None and sbs_interp.dominant_fraction is not None:
+        dom_txt = f"{sbs_interp.dominant_class} ({sbs_interp.dominant_fraction:.0%})"
+    else:
+        dom_txt = "N/A"
+    metrics_line = f"SNVs: {sbs_interp.n_snvs}  |  Dominant: {dom_txt}  |  Ti/Tv: {titv_str}"
+    if sbs_interp.has_cc_tt_dnp:
+        metrics_line += "  |  CC>TT DNP"
+    canvas.text(
+        interp_x,
+        0.507,
+        metrics_line,
+        fontsize=7.0,
+        fontweight="bold",
+        color="#334155",
+        va="center",
+    )
+
+    detail_wrapped = "\n".join(textwrap.wrap(sbs_interp.detail, width=56))
+    canvas.text(
+        interp_x,
+        0.486,
+        detail_wrapped,
+        fontsize=7.5,
+        color="#1E293B",
+        va="top",
+        linespacing=1.35,
+    )
+    caveat_wrapped = "\n".join(
+        textwrap.wrap(
+            f"{sbs_interp.confidence_note}. Heuristic 6-channel panel guide; "
+            "not formal COSMIC SBS-96 signature deconvolution.",
+            width=62,
+        )
+    )
+    canvas.text(
+        interp_x,
+        0.388,
+        caveat_wrapped,
+        fontsize=6.6,
+        style="italic",
+        color="#64748B",
+        va="bottom",
+        linespacing=1.25,
+    )
+
+    # 4. Bottom Card: Chromosome-Level CNA Profile (chr1..chr22, chrX)
+    _draw_card(canvas, 0.06, 0.062, 0.88, 0.288, facecolor="#F8FAFC", edgecolor="#CBD5E1")
     if comp.cna_result is not None and not comp.cna_result.chrom_summary.empty:
-        ax_cna = fig.add_axes([0.10, 0.355, 0.83, 0.185])
+        canvas.text(
+            0.078,
+            0.330,
+            f"Chromosome Copy Number Profile — Mean Within-Sample Signed Rank "
+            f"(Observed Bins: {comp.cna_result.observed_bin_fraction:.1%})",
+            fontsize=8.6,
+            fontweight="bold",
+            color="#0F172A",
+            va="center",
+        )
+        ax_cna = fig.add_axes([0.115, 0.112, 0.800, 0.195])
         cdf = comp.cna_result.chrom_summary
         c_names = [c.removeprefix("chr") for c in cdf["chrom"].tolist()]
         c_vals = cdf["mean_signed_rank"].fillna(0.0).to_numpy(dtype=float)
@@ -963,24 +1097,27 @@ def _render_page4_molecular_and_qc(
         ax_cna.axhline(0.0, color="#334155", lw=0.7)
         ax_cna.set_ylim(-1.05, 1.05)
         ax_cna.set_xticks(xc)
-        ax_cna.set_xticklabels(c_names, fontsize=7.2)
+        ax_cna.set_xticklabels(c_names, fontsize=7.3)
         ax_cna.set_xlabel("Chromosome (hg19 10 Mb Coverage-Aware Bins)", fontsize=7.5)
         ax_cna.set_ylabel("Mean Rank", fontsize=7.5)
+        ax_cna.set_facecolor("#F8FAFC")
         ax_cna.grid(axis="y", linestyle=":", alpha=0.35)
         ax_cna.spines["top"].set_visible(False)
         ax_cna.spines["right"].set_visible(False)
-        ax_cna.set_title(
-            f"Chromosome Copy Number Profile — Mean Within-Sample Signed Rank "
-            f"(Observed Bins: {comp.cna_result.observed_bin_fraction:.1%})",
-            loc="left",
-            fontsize=8.2,
-            pad=5,
+        ax_cna.legend(
+            handles=[
+                Patch(facecolor=OKABE_ITO["vermilion"], alpha=0.88, label="Relative Gain (+)"),
+                Patch(facecolor=OKABE_ITO["blue"], alpha=0.88, label="Relative Loss (–)"),
+            ],
+            loc="upper right",
+            frameon=False,
+            ncol=2,
+            fontsize=7.2,
         )
     else:
-        _draw_card(canvas, 0.06, 0.345, 0.88, 0.215, facecolor="#F8FAFC", edgecolor="#CBD5E1")
         canvas.text(
             0.50,
-            0.465,
+            0.220,
             "Copy Number Profile Unavailable",
             fontsize=9.5,
             fontweight="bold",
@@ -990,68 +1127,11 @@ def _render_page4_molecular_and_qc(
         )
         canvas.text(
             0.50,
-            0.430,
+            0.185,
             comp.seg_result.error_reason or "No valid CNA segments provided for chromosome summary.",
             fontsize=8.0,
             color="#64748B",
             ha="center",
-            va="center",
-        )
-
-    # 5. Bottom: 5-Fold Technical Compatibility Audit Table
-    _draw_card(canvas, 0.06, 0.060, 0.88, 0.235, facecolor="#F8FAFC", edgecolor="#CBD5E1")
-    canvas.text(
-        0.08,
-        0.272,
-        "5-Fold Saved-State Preprocessing & Technical Compatibility Audit",
-        fontsize=8.6,
-        fontweight="bold",
-        color="#0F172A",
-        va="center",
-    )
-    f_headers = ["Fold", "Primary Guard", "Active Mode Status", "Compiled Features", "Audit Notes"]
-    f_x = [0.08, 0.17, 0.33, 0.51, 0.67]
-    for cx, ht in zip(f_x, f_headers):
-        canvas.text(cx, 0.244, ht, fontsize=7.3, fontweight="bold", color="#475569", va="center")
-    canvas.plot([0.075, 0.925], [0.230, 0.230], color="#CBD5E1", lw=0.65)
-
-    if not comp.fold_audit:
-        canvas.text(
-            0.08,
-            0.195,
-            f"Stopped at pre-fold molecular eligibility gate ({comp.no_call_reason}).",
-            fontsize=7.6,
-            color="#991B1B",
-        )
-    else:
-        for idx, rec in enumerate(comp.fold_audit):
-            ry = 0.210 - idx * 0.025
-            p_txt = "PASS" if rec.compatible_primary else "REJECT"
-            p_col = "#009E73" if rec.compatible_primary else "#D55E00"
-            a_txt = "COMPATIBLE" if rec.compatible_active else "NO-CALL"
-            a_col = "#009E73" if rec.compatible_active else "#DC2626"
-            note = (
-                "All retained features supported"
-                if not rec.unsupported_missing_features
-                else f"Missing: {', '.join(rec.unsupported_missing_features[:2])}"
-            )
-            if len(rec.unsupported_missing_features) > 2:
-                note += f" (+{len(rec.unsupported_missing_features) - 2})"
-            canvas.text(f_x[0], ry, f"Fold {rec.fold}", fontsize=7.4, fontweight="bold", color="#0F172A", va="center")
-            canvas.text(f_x[1], ry, p_txt, fontsize=7.3, fontweight="bold", color=p_col, va="center")
-            canvas.text(f_x[2], ry, a_txt, fontsize=7.3, fontweight="bold", color=a_col, va="center")
-            canvas.text(f_x[3], ry, f"{rec.n_compiled_features:,}", fontsize=7.4, color="#334155", va="center")
-            canvas.text(f_x[4], ry, note[:36], fontsize=7.1, color="#475569", va="center")
-
-    if shap_res is not None:
-        canvas.text(
-            0.08,
-            0.074,
-            f"SHAP Verification: Simultaneous 22-class additivity verified "
-            f"(max |base + Σφ - P| = {shap_res.max_additivity_residual:.2e} < 2.0e-05).",
-            fontsize=7.2,
-            color="#009E73",
-            fontweight="bold",
             va="center",
         )
 
@@ -1071,30 +1151,27 @@ def generate_pdf_report(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sbs_interp = interpret_sbs6_spectrum(comp.spectrum_df, comp.maf_result.usable_maf)
 
     if comp.status == "TECHNICAL_NO_CALL" or prediction is None:
-        model_tag = "V20 Technical No-Call Diagnostic"
+        model_tag = format_model_tag(comp.active_model_mode, is_no_call=True)
         total_pages = 2
         with PdfPages(output_path) as pdf:
             _render_page1_summary(
-                pdf, config, comp, None, timestamp, model_tag, total_pages
+                pdf, config, comp, None, sbs_interp, timestamp, model_tag, total_pages
             )
-            _render_page4_molecular_and_qc(
-                pdf, config, comp, None, timestamp, model_tag, 2, total_pages
+            _render_page4_molecular_profile(
+                pdf, config, comp, sbs_interp, timestamp, model_tag, 2, total_pages
             )
         return output_path
 
-    model_tag = (
-        "V20 Primary 50% Blend"
-        if comp.active_model_mode == "primary_50pct_blend"
-        else "V20 Fallback Without CNA"
-    )
+    model_tag = format_model_tag(comp.active_model_mode, is_no_call=False)
     has_shap = shap_res is not None and len(shap_res.top3_explanations) > 0
     total_pages = 4 if has_shap else 2
 
     with PdfPages(output_path) as pdf:
         _render_page1_summary(
-            pdf, config, comp, prediction, timestamp, model_tag, total_pages
+            pdf, config, comp, prediction, sbs_interp, timestamp, model_tag, total_pages
         )
         if has_shap and shap_res is not None:
             _render_page2_rank1_shap(
@@ -1103,12 +1180,12 @@ def generate_pdf_report(
             _render_page3_rank2_rank3_shap(
                 pdf, config, shap_res, timestamp, model_tag, total_pages
             )
-            _render_page4_molecular_and_qc(
-                pdf, config, comp, shap_res, timestamp, model_tag, 4, total_pages
+            _render_page4_molecular_profile(
+                pdf, config, comp, sbs_interp, timestamp, model_tag, 4, total_pages
             )
         else:
-            _render_page4_molecular_and_qc(
-                pdf, config, comp, None, timestamp, model_tag, 2, total_pages
+            _render_page4_molecular_profile(
+                pdf, config, comp, sbs_interp, timestamp, model_tag, 2, total_pages
             )
 
     return output_path

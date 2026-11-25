@@ -1,4 +1,4 @@
-"""Optional standalone HTML report generator (--html) with Top-3 V20 SHAP waterfalls."""
+"""Optional standalone HTML report generator (--html) with Top-3 TOPO SHAP waterfalls."""
 
 from __future__ import annotations
 
@@ -19,7 +19,14 @@ from ..config import PipelineConfig, TISSUE_DISPLAY_NAMES
 from ..prediction.explainer import ClassSHAPExplanation, Top3SHAPResult
 from ..prediction.predictor import PredictionResult
 from ..preprocessing.compiler import CompilationResult
-from .formatting import OKABE_ITO, apply_report_rcparams
+from .formatting import (
+    OKABE_ITO,
+    SBS6Interpretation,
+    apply_report_rcparams,
+    format_model_mode,
+    interpret_sbs6_spectrum,
+)
+from .logo import load_logo_svg_b64
 from .pdf_report import draw_shap_waterfall_ax
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -51,10 +58,40 @@ def _plot_probabilities_b64(prediction: PredictionResult) -> str:
     ax.set_ylim(0, max(max(probs) * 1.15, 0.25))
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
     ax.set_ylabel("Calibrated Probability")
-    ax.set_title("22-Class RealMLP + TabM Calibrated Probability Distribution", loc="left")
+    ax.set_title("22-Class TOPO Calibrated Probability Distribution", loc="left")
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.grid(axis="y", linestyle=":", alpha=0.35)
+    return _fig_to_b64(fig)
+
+
+def _plot_sbs6_b64(sbs_interp: SBS6Interpretation) -> str:
+    apply_report_rcparams()
+    fig, ax = plt.subplots(figsize=(4.6, 2.3))
+    sbs_labels = ["C>A", "C>G", "C>T", "T>A", "T>C", "T>G"]
+    sbs_counts = [float(sbs_interp.counts[c]) for c in sbs_labels]
+    sbs_colors = ["#56B4E9", "#334155", "#D55E00", "#94A3B8", "#009E73", "#CC79A7"]
+    bars = ax.bar(np.arange(6), sbs_counts, width=0.60, color=sbs_colors)
+    ax.set_xticks(np.arange(6))
+    ax.set_xticklabels(sbs_labels, fontsize=8.5, fontweight="bold")
+    ymax = max(max(sbs_counts) * 1.30, 1.0)
+    ax.set_ylim(0, ymax)
+    ax.set_ylabel("SNV Count", fontsize=8.5)
+    ax.grid(axis="y", linestyle=":", alpha=0.35)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for bar, cnt in zip(bars, sbs_counts):
+        if cnt > 0:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2.0,
+                cnt + ymax * 0.03,
+                f"{int(round(cnt))}",
+                ha="center",
+                va="bottom",
+                fontsize=8.2,
+                fontweight="bold",
+                color="#0F172A",
+            )
     return _fig_to_b64(fig)
 
 
@@ -75,15 +112,43 @@ def generate_html_report(
     prediction: Optional[PredictionResult],
     shap_res: Optional[Top3SHAPResult],
 ) -> Path:
-    """Render an optional standalone HTML report mirroring the V20 PDF report."""
+    """Render a standalone HTML report mirroring the TOPO PDF report."""
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=True)
     template = env.get_template("report.html")
 
+    logo_svg_b64 = load_logo_svg_b64("logo")
+    sbs_interp = interpret_sbs6_spectrum(comp.spectrum_df, comp.maf_result.usable_maf)
+    sbs_b64 = _plot_sbs6_b64(sbs_interp)
     prob_b64 = _plot_probabilities_b64(prediction) if prediction is not None else None
+    model_mode_display = format_model_mode(
+        comp.active_model_mode,
+        is_no_call=(comp.status == "TECHNICAL_NO_CALL" or prediction is None),
+    )
+
     waterfall_cards = []
     if shap_res is not None:
+        short_mod_names = {
+            "Copy Number (CNA)": "CNA",
+            "Somatic Mutations": "Mutations",
+            "Structural Variants": "SVs",
+            "SBS-6 Spectrum": "SBS-6",
+            "Clinical (Age/Sex)": "Clinical",
+        }
         for exp in shap_res.top3_explanations:
             mdisp = 15 if exp.rank == 1 else 12
+            modality_summary = [
+                {
+                    "label": short_mod_names[m],
+                    "delta": exp.modality_totals.get(m, 0.0),
+                }
+                for m in [
+                    "Copy Number (CNA)",
+                    "Somatic Mutations",
+                    "Structural Variants",
+                    "SBS-6 Spectrum",
+                    "Clinical (Age/Sex)",
+                ]
+            ]
             waterfall_cards.append(
                 {
                     "rank": exp.rank,
@@ -92,6 +157,7 @@ def generate_html_report(
                     "probability": exp.predicted_probability,
                     "base_value": exp.base_value,
                     "plot_b64": _plot_waterfall_b64(exp, max_display=mdisp),
+                    "modality_summary": modality_summary,
                     "top_positive": exp.top_positive[:6],
                     "top_negative": exp.top_negative[:4],
                 }
@@ -103,9 +169,13 @@ def generate_html_report(
         age=config.age,
         sex=config.sex,
         true_tumor_type=config.true_tumor_type,
+        model_mode_display=model_mode_display,
+        logo_svg_b64=logo_svg_b64,
         comp=comp,
         prediction=prediction,
         shap_res=shap_res,
+        sbs_interp=sbs_interp,
+        sbs_b64=sbs_b64,
         prob_b64=prob_b64,
         waterfall_cards=waterfall_cards,
         n_usable_mut=len(comp.maf_result.usable_maf),
