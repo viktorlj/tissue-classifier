@@ -3,120 +3,119 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tissue-of-Origin Classification Report — {{ sample_id }}</title>
+<title>V20 Tissue-of-Origin Report — {{ sample_id }}</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1100px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.5; }
-  h1 { color: #1565C0; border-bottom: 2px solid #1565C0; padding-bottom: 10px; }
-  h2 { color: #1976D2; margin-top: 30px; }
-  .badge { display: inline-block; padding: 6px 16px; border-radius: 20px; color: white; font-weight: bold; font-size: 14px; }
-  .badge-high { background: #4CAF50; }
-  .badge-moderate { background: #FF9800; }
-  .badge-low { background: #F44336; }
-  .summary-box { background: #F5F5F5; border-radius: 8px; padding: 20px; margin: 20px 0; }
-  .prediction-main { font-size: 28px; font-weight: bold; color: #1565C0; }
-  .confidence { font-size: 18px; margin-top: 5px; }
-  table { border-collapse: collapse; width: 100%; margin: 15px 0; }
-  th, td { border: 1px solid #E0E0E0; padding: 8px 12px; text-align: left; }
-  th { background: #E3F2FD; font-weight: 600; }
-  tr:nth-child(even) { background: #FAFAFA; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 1080px; margin: 0 auto; padding: 24px; color: #0f172a; line-height: 1.5; background: #ffffff; }
+  h1 { font-size: 22px; color: #0f172a; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px; margin-bottom: 16px; }
+  h2 { font-size: 17px; color: #1e293b; margin-top: 28px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+  .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px 18px; font-size: 13.5px; margin-bottom: 16px; }
+  .banner-warn { background: #fffbeb; border: 1.5px solid #d97706; border-radius: 8px; padding: 12px 16px; color: #78350f; margin-bottom: 16px; font-size: 13.5px; }
+  .banner-nocall { background: #fef2f2; border: 1.5px solid #dc2626; border-radius: 8px; padding: 18px; color: #7f1d1d; margin-bottom: 18px; }
+  .callout { background: #f8fafc; border: 1.5px solid #0072b2; border-radius: 8px; padding: 18px 22px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  .pred-title { font-size: 24px; font-weight: 700; color: #0f172a; }
+  .badge { display: inline-block; padding: 4px 12px; border-radius: 999px; color: #fff; font-weight: 700; font-size: 12px; text-transform: uppercase; }
+  .badge-HIGH_CONFIDENCE { background: #009e73; }
+  .badge-STANDARD_CONFIDENCE { background: #0072b2; }
+  .badge-TOP3_DIFFERENTIAL { background: #e69f00; }
+  .badge-LOW_CONFIDENCE { background: #d55e00; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 13.5px; }
+  th, td { border: 1px solid #e2e8f0; padding: 7px 11px; text-align: left; }
+  th { background: #f1f5f9; font-weight: 600; color: #334155; }
+  .wf-card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 16px; margin-bottom: 20px; background: #fcfdff; }
   img { max-width: 100%; height: auto; }
-  .plot-container { margin: 15px 0; text-align: center; }
-  .footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #E0E0E0; font-size: 12px; color: #757575; }
-  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  .true-class { margin-top: 10px; font-size: 18px; color: #555; }
-  .true-class strong { color: #2E7D32; }
-  .match-correct { color: #4CAF50; font-weight: bold; }
-  .match-top3 { color: #FF9800; font-weight: bold; }
-  .match-miss { color: #F44336; font-weight: bold; }
-  @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
-  @media print { body { max-width: none; } .plot-container img { max-height: 300px; } }
+  .footer { margin-top: 36px; padding-top: 14px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b; }
 </style>
 </head>
 <body>
 
-<h1>Tissue-of-Origin Classification Report</h1>
+<h1>Tissue-of-Origin Clinical &amp; Molecular Report (RealMLP + TabM)</h1>
 
-<div class="summary-box">
-  <div class="prediction-main">Predicted: {{ predicted_class }}</div>
-  <div class="confidence">
-    Confidence: {{ "%.1f"|format(confidence * 100) }}%
-    <span class="badge badge-{{ confidence_level }}">{{ confidence_level|capitalize }} Confidence</span>
-  </div>
-  <div style="margin-top: 8px; color: #666;">Sample: {{ sample_id }}</div>
-  {% if true_class is defined and true_class %}
-  <div class="true-class">
-    True class: <strong>{{ true_class }}</strong>
-    {% set top3_classes = [] %}{% for cls, _ in top3 %}{% if top3_classes.append(cls) %}{% endif %}{% endfor %}
-    {% if predicted_class == true_class %}
-      <span class="match-correct">&#10003; Correct (Top-1)</span>
-    {% elif true_class in top3_classes %}
-      <span class="match-top3">&#9679; In Top-3</span>
-    {% else %}
-      <span class="match-miss">&#10007; Not in Top-3</span>
-    {% endif %}
-  </div>
-  {% endif %}
+<div class="meta-grid">
+  <div><strong>Sample ID:</strong> {{ sample_id }}</div>
+  <div><strong>Genome Build:</strong> {{ genome }}</div>
+  <div><strong>Age / Sex:</strong> {{ age if age is not none else "Imputed" }} / {{ sex if sex is not none else "Imputed" }}</div>
+  <div><strong>Model Mode:</strong> {{ comp.active_model_mode }}</div>
+  <div><strong>Mutations (274g):</strong> {{ n_usable_mut }} usable ({{ n_raw_mut }} raw)</div>
+  <div><strong>CNA Coverage:</strong> {{ cna_coverage }} ({{ cna_segments }} segments)</div>
 </div>
 
-<h2>Top-3 Predictions</h2>
-<div class="two-col">
-  <div class="plot-container">
-    <img src="data:image/png;base64,{{ plot_top3 }}" alt="Top-3 predictions">
-  </div>
-  <table>
-    <tr><th>Rank</th><th>Tumor Type</th><th>Probability</th></tr>
-    {% for cls, prob in top3 %}
-    <tr><td>{{ loop.index }}</td><td>{{ cls }}</td><td>{{ "%.1f"|format(prob * 100) }}%</td></tr>
-    {% endfor %}
-  </table>
-</div>
-
-{% if plot_shap %}
-<h2>Feature Explanations (SHAP)</h2>
-<p>Top features driving the prediction toward <strong>{{ predicted_class }}</strong>.
-Green bars push the prediction toward this class; red bars push away.
-SHAP computed with {{ shap_nsamples }} perturbation samples.</p>
-<div class="plot-container">
-  <img src="data:image/png;base64,{{ plot_shap }}" alt="SHAP waterfall">
+{% if comp.fallback_warning %}
+<div class="banner-warn">
+  <strong>WARNING — NO-CNA FALLBACK MODE ACTIVE:</strong> {{ comp.fallback_warning }}
 </div>
 {% endif %}
 
-<h2>Full Probability Distribution</h2>
-<div class="plot-container">
-  <img src="data:image/png;base64,{{ plot_probabilities }}" alt="Full probability distribution">
+{% if comp.status == "TECHNICAL_NO_CALL" or prediction is none %}
+<div class="banner-nocall">
+  <div style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">TECHNICAL NO-CALL ({{ comp.no_call_reason }})</div>
+  <div>{{ comp.diagnostic_message }}</div>
 </div>
-
-<h2>Feature Summary by Modality</h2>
-<div class="two-col">
-  <div class="plot-container">
-    <img src="data:image/png;base64,{{ plot_modality }}" alt="Feature modality breakdown">
+{% else %}
+<div class="callout">
+  <div>
+    <div style="font-size: 12px; font-weight: 700; color: #475569; text-transform: uppercase;">Predicted Tissue of Origin</div>
+    <div class="pred-title">{{ prediction.predicted_display_name }} ({{ prediction.predicted_class }})</div>
+    <div style="font-size: 13px; color: #334155; margin-top: 4px;">{{ prediction.policy_description }}</div>
+    {% if true_tumor_type %}
+    <div style="font-size: 13px; margin-top: 6px;"><strong>Known Origin:</strong> {{ true_tumor_type }}</div>
+    {% endif %}
   </div>
-  <table>
-    <tr><th>Modality</th><th>Non-Zero Features</th></tr>
-    {% for mod, feats in nonzero_features_by_modality.items() %}
-    <tr><td>{{ mod }}</td><td>{{ feats|length }}</td></tr>
-    {% endfor %}
-    <tr style="font-weight: bold;"><td>Total</td><td>{{ n_nonzero_features }} / {{ n_total_features }}</td></tr>
-  </table>
+  <div style="text-align: right;">
+    <div style="font-size: 28px; font-weight: 700; color: #0072b2;">{{ "%.1f"|format(prediction.confidence * 100) }}%</div>
+    <span class="badge badge-{{ prediction.policy_tier_code }}">{{ prediction.policy_tier }}</span>
+    <div style="font-size: 12px; color: #475569; margin-top: 6px;">Top-3 Sum: {{ "%.1f"|format(prediction.top3_cumulative_probability * 100) }}%</div>
+  </div>
 </div>
 
-<h2>Input Data Summary</h2>
+<h2>Top-3 Candidate Differential</h2>
 <table>
-  <tr><th>Parameter</th><th>Value</th></tr>
-  <tr><td>Sample ID</td><td>{{ sample_id }}</td></tr>
-  <tr><td>Genome Build</td><td>{{ genome }}</td></tr>
-  <tr><td>Mutations</td><td>{{ n_mutations }}</td></tr>
-  <tr><td>Segments</td><td>{{ n_segments if has_seg else "Not provided" }}</td></tr>
-  <tr><td>SV Data</td><td>{{ "Provided" if has_sv else "Not provided" }}</td></tr>
-  <tr><td>Age</td><td>{{ age if age is not none else "Not provided" }}</td></tr>
-  <tr><td>Sex</td><td>{{ sex if sex is not none else "Not provided" }}</td></tr>
-  <tr><td>Mutation Spectrum (SBS-6)</td><td>{{ spectrum_status }}</td></tr>
+  <tr><th>Rank</th><th>Tumor Type</th><th>Code</th><th>Calibrated Probability</th><th>Unweighted Arm</th><th>Balanced Arm</th></tr>
+  {% for cand in prediction.top3 %}
+  <tr>
+    <td>#{{ cand.rank }}</td>
+    <td><strong>{{ cand.display_name }}</strong></td>
+    <td>{{ cand.tumor_type }}</td>
+    <td><strong>{{ "%.2f"|format(cand.probability * 100) }}%</strong></td>
+    <td>{{ "%.2f"|format(cand.unweighted_probability * 100) }}%</td>
+    <td>{{ "%.2f"|format(cand.balanced_probability * 100) }}%</td>
+  </tr>
+  {% endfor %}
+</table>
+
+{% if prob_b64 %}
+<h2>22-Class Calibrated Probability Distribution</h2>
+<img src="data:image/png;base64,{{ prob_b64 }}" alt="22-class calibrated probabilities">
+{% endif %}
+
+{% if waterfall_cards %}
+<h2>Coherent 5-Fold Top-3 SHAP Waterfall Explanations</h2>
+<p style="font-size: 13px; color: #475569;">
+  Simultaneous 22-class PermutationSHAP ({{ shap_res.background_donors }} background donors, {{ shap_res.permutations }} cycles;
+  max additivity residual = {{ "%.2e"|format(shap_res.max_additivity_residual) }}).
+</p>
+{% for wf in waterfall_cards %}
+<div class="wf-card">
+  <img src="data:image/png;base64,{{ wf.plot_b64 }}" alt="Rank {{ wf.rank }} SHAP waterfall">
+</div>
+{% endfor %}
+{% endif %}
+{% endif %}
+
+<h2>5-Fold Technical Compatibility &amp; Input Audit</h2>
+<table>
+  <tr><th>Fold</th><th>Primary Guard</th><th>Active Status</th><th>Compiled Features</th></tr>
+  {% for rec in comp.fold_audit %}
+  <tr>
+    <td>Fold {{ rec.fold }}</td>
+    <td>{{ "PASS" if rec.compatible_primary else "REJECT" }}</td>
+    <td>{{ "COMPATIBLE" if rec.compatible_active else "NO-CALL" }}</td>
+    <td>{{ rec.n_compiled_features }}</td>
+  </tr>
+  {% endfor %}
 </table>
 
 <div class="footer">
-  <p>Generated by tissue-classifier v{{ version }} on {{ timestamp }}</p>
-  <p>Model: CatBoost_BAG_L2 | {{ n_classes }} tumor types | {{ n_total_features }} features | 7 modalities</p>
-  <p>Training data: AACR GENIE v18 (85.0% balanced accuracy, 94.8% top-3 accuracy)</p>
+  Generated by tissue-classifier v{{ version }} on {{ timestamp }} &bull; 40-network calibrated RealMLP + TabM ensemble (LogitPool + Vector Scaling, AACR GENIE v20).
 </div>
 
 </body>

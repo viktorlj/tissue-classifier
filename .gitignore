@@ -1,26 +1,29 @@
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .venv/
 *.egg-info/
 dist/
 build/
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# Large files
+# Large model weights (distributed via GitHub Releases)
 models/
-reference_data/shap_background.pkl
-results/
-tests/test_output/
-tests/real_samples/
 
-# macOS
+# Runtime outputs & caches
+results/
+results_*/
+demo_results/
+tests/test_output/
+.mplconfig/
+.numba_cache/
+
+# macOS / OS
 .DS_Store
 ._*
 
-# IDE
+# IDEs
 .vscode/
 .idea/
-
-# Development notes
-plan.md
-lab-notebook.md

@@ -1,151 +1,126 @@
-"""Jinja2 HTML report generation for tissue classification results."""
+"""Optional standalone HTML report generator (--html) with Top-3 V20 SHAP waterfalls."""
+
 from __future__ import annotations
 
-import logging
+import base64
 from datetime import datetime
+import io
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from jinja2 import Environment, FileSystemLoader
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
 
 from .. import __version__
-from ..config import ReferenceData
+from ..config import PipelineConfig, TISSUE_DISPLAY_NAMES
+from ..prediction.explainer import ClassSHAPExplanation, Top3SHAPResult
 from ..prediction.predictor import PredictionResult
-from ..prediction.explainer import SHAPResult
-from .plots import (
-    plot_full_probabilities,
-    plot_modality_breakdown,
-    plot_shap_waterfall,
-    plot_top3_predictions,
-)
-
-logger = logging.getLogger(__name__)
+from ..preprocessing.compiler import CompilationResult
+from .formatting import OKABE_ITO, apply_report_rcparams
+from .pdf_report import draw_shap_waterfall_ax
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 
-def _confidence_level(confidence: float) -> str:
-    if confidence >= 0.7:
-        return "high"
-    elif confidence >= 0.4:
-        return "moderate"
-    return "low"
+def _fig_to_b64(fig: plt.Figure) -> str:
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode("ascii")
 
 
-def _nonzero_features_by_modality(
-    features_df: "pd.DataFrame",
-    ref: ReferenceData,
-) -> dict[str, list[str]]:
-    """Group non-zero features by their source modality."""
-    import pandas as pd
+def _plot_probabilities_b64(prediction: PredictionResult) -> str:
+    apply_report_rcparams()
+    fig, ax = plt.subplots(figsize=(9.5, 3.3))
+    items = sorted(prediction.all_probabilities.items(), key=lambda kv: -kv[1])
+    codes = [k for k, _ in items]
+    probs = [v for _, v in items]
+    names = [TISSUE_DISPLAY_NAMES.get(k, k) for k in codes]
+    colors = [
+        OKABE_ITO["blue"] if i == 0 else ("#56B4E9" if i < 3 else "#CBD5E1")
+        for i in range(len(codes))
+    ]
+    x = np.arange(len(codes))
+    ax.bar(x, probs, color=colors, width=0.68)
+    ax.set_xticks(x)
+    ax.set_xticklabels(names, rotation=36, ha="right", rotation_mode="anchor", fontsize=8.0)
+    ax.set_ylim(0, max(max(probs) * 1.15, 0.25))
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
+    ax.set_ylabel("Calibrated Probability")
+    ax.set_title("22-Class RealMLP + TabM Calibrated Probability Distribution", loc="left")
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", linestyle=":", alpha=0.35)
+    return _fig_to_b64(fig)
 
-    manifest = pd.read_csv(ref._dir / "feature_manifest.csv")
-    step_map = dict(zip(manifest["feature_name"], manifest["source_step"]))
-    step_labels = {
-        "Step05_Mutations": "Mutations",
-        "Step06_SV": "Structural Variants",
-        "Step07_MutSpectrum": "Mutation Spectrum (SBS-6)",
-        "Step08_CNA": "Copy Number",
-        "Step09_Clinical": "Clinical",
-    }
-    result: dict[str, list[str]] = {v: [] for v in step_labels.values()}
-    result["Other"] = []  # catch-all for unmapped features
-    row = features_df.iloc[0]
-    for feat in features_df.columns:
-        if row[feat] != 0:
-            step = step_map.get(feat, "")
-            label = step_labels.get(step, "Other")
-            result[label].append(feat)
-    # Remove empty modalities
-    return {k: v for k, v in result.items() if v}
+
+def _plot_waterfall_b64(cls_exp: ClassSHAPExplanation, max_display: int = 14) -> str:
+    apply_report_rcparams()
+    fig = plt.figure(figsize=(8.8, 0.36 * max_display + 1.4))
+    ax = fig.add_axes([0.38, 0.14, 0.58, 0.76])
+    draw_shap_waterfall_ax(
+        ax, cls_exp, max_display=max_display, title_prefix=f"Rank #{cls_exp.rank}: "
+    )
+    return _fig_to_b64(fig)
 
 
 def generate_html_report(
-    prediction: PredictionResult,
-    features_df: "pd.DataFrame",
-    ref: ReferenceData,
-    sample_id: str = "SAMPLE",
-    genome: str = "hg19",
-    n_mutations: int = 0,
-    n_segments: int = 0,
-    has_seg: bool = False,
-    has_sv: bool = False,
-    age: Optional[float] = None,
-    sex: Optional[str] = None,
-    spectrum_status: str = "computed",
-    shap_result: Optional[SHAPResult] = None,
-    shap_nsamples: int = 500,
-    true_class: Optional[str] = None,
-    output_path: Optional[Path] = None,
-) -> str:
-    """Generate an HTML report from prediction results.
-
-    Parameters
-    ----------
-    prediction : PredictionResult
-        Model prediction result.
-    features_df : pd.DataFrame
-        Compiled feature DataFrame.
-    ref : ReferenceData
-        Reference data instance.
-    sample_id : str
-        Sample identifier.
-    output_path : Optional[Path]
-        If provided, write the HTML to this path.
-
-    Returns
-    -------
-    str
-        HTML string.
-    """
-    env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+    output_path: Path,
+    config: PipelineConfig,
+    comp: CompilationResult,
+    prediction: Optional[PredictionResult],
+    shap_res: Optional[Top3SHAPResult],
+) -> Path:
+    """Render an optional standalone HTML report mirroring the V20 PDF report."""
+    env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)), autoescape=True)
     template = env.get_template("report.html")
 
-    nonzero_mods = _nonzero_features_by_modality(features_df, ref)
-    n_nonzero = sum(len(v) for v in nonzero_mods.values())
-
-    # Generate plots
-    plot_top3 = plot_top3_predictions(prediction.top3)
-    plot_probabilities = plot_full_probabilities(prediction.all_probabilities)
-    plot_modality = plot_modality_breakdown(nonzero_mods)
-    plot_shap = None
-    if shap_result is not None:
-        plot_shap = plot_shap_waterfall(
-            shap_result.top_features, prediction.predicted_class,
-        )
+    prob_b64 = _plot_probabilities_b64(prediction) if prediction is not None else None
+    waterfall_cards = []
+    if shap_res is not None:
+        for exp in shap_res.top3_explanations:
+            mdisp = 15 if exp.rank == 1 else 12
+            waterfall_cards.append(
+                {
+                    "rank": exp.rank,
+                    "tumor_type": exp.tumor_type,
+                    "display_name": exp.display_name,
+                    "probability": exp.predicted_probability,
+                    "base_value": exp.base_value,
+                    "plot_b64": _plot_waterfall_b64(exp, max_display=mdisp),
+                    "top_positive": exp.top_positive[:6],
+                    "top_negative": exp.top_negative[:4],
+                }
+            )
 
     html = template.render(
-        sample_id=sample_id,
-        predicted_class=prediction.predicted_class,
-        confidence=prediction.confidence,
-        confidence_level=_confidence_level(prediction.confidence),
-        top3=prediction.top3,
-        plot_top3=plot_top3,
-        plot_probabilities=plot_probabilities,
-        plot_modality=plot_modality,
-        plot_shap=plot_shap,
-        nonzero_features_by_modality=nonzero_mods,
-        n_nonzero_features=n_nonzero,
-        n_total_features=len(features_df.columns),
-        genome=genome,
-        n_mutations=n_mutations,
-        n_segments=n_segments,
-        has_seg=has_seg,
-        has_sv=has_sv,
-        age=age,
-        sex=sex,
-        spectrum_status=spectrum_status,
-        shap_nsamples=shap_nsamples,
-        true_class=true_class,
+        sample_id=config.sample_id,
+        genome=config.genome,
+        age=config.age,
+        sex=config.sex,
+        true_tumor_type=config.true_tumor_type,
+        comp=comp,
+        prediction=prediction,
+        shap_res=shap_res,
+        prob_b64=prob_b64,
+        waterfall_cards=waterfall_cards,
+        n_usable_mut=len(comp.maf_result.usable_maf),
+        n_raw_mut=comp.maf_result.raw_count,
+        n_usable_sv=len(comp.sv_result.usable_sv),
+        sv_supplied=comp.sv_result.supplied,
+        cna_segments=comp.cna_result.n_autosomal_x_segments if comp.cna_result else 0,
+        cna_coverage=(
+            f"{comp.cna_result.observed_bin_fraction:.1%}" if comp.cna_result else "N/A"
+        ),
         version=__version__,
         timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        n_classes=len(prediction.class_labels),
     )
 
-    if output_path is not None:
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            f.write(html)
-        logger.info("Report written to %s", output_path)
-
-    return html
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(html)
+    return output_path

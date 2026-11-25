@@ -1,121 +1,124 @@
 #!/usr/bin/env python3
-"""Run the 10 demo samples through the tissue-classifier pipeline and compare with old predictions."""
+"""Run all bundled demo_data samples through V20 tissue-classifier and verify cached parity."""
 
+from __future__ import annotations
+
+import argparse
+import logging
+from pathlib import Path
 import sys
 import time
-from pathlib import Path
 
-# Ensure we import from the local source
-sys.path.insert(0, str(Path("src").resolve()))
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from tissue_classifier.config import PipelineConfig, ReferenceData
+import numpy as np
+import pandas as pd
+
+from tissue_classifier.config import PROJECT_ROOT, PipelineConfig, ReferenceData
 from tissue_classifier.pipeline import run_pipeline
+from tissue_classifier.prediction.predictor import TissuePredictor
 
-DEMO_DIR = Path("demo_data")
-OUTPUT_DIR = Path("results_v19")
 
-# Ground truth from GENIE clinical data
-GROUND_TRUTH = {
-    "GENIE-MSK-P-0016546-T01-IM6": {"cancer": "BLADDER", "oncotree": "BLCA", "age": 72, "sex": "Male"},
-    "GENIE-MSK-P-0031532-T01-IM6": {"cancer": "BREAST", "oncotree": "BRCA", "age": 65, "sex": "Female"},
-    "GENIE-MSK-P-0042600-T01-IM6": {"cancer": "CNS", "oncotree": "GBM", "age": 73, "sex": "Female"},
-    "GENIE-MSK-P-0071028-T01-IM7": {"cancer": "COLORECTAL", "oncotree": "READ", "age": 27, "sex": "Male"},
-    "GENIE-MSK-P-0079362-T01-IM7": {"cancer": "GYN", "oncotree": "UDDC", "age": 54, "sex": "Female"},
-    "GENIE-MSK-P-0090767-T01-IM7": {"cancer": "ESOPHAGOGASTRIC", "oncotree": "STAD", "age": 82, "sex": "Male"},
-    "GENIE-UCSF-15252-7549T": {"cancer": "HEAD_NECK", "oncotree": "LXSC", "age": 71, "sex": "Male"},
-    "GENIE-UCSF-15399-6820T": {"cancer": "GERM_CELL", "oncotree": "GMN", "age": 38, "sex": "Male"},
-    "GENIE-UCSF-16316-7333T": {"cancer": "GIST", "oncotree": "GIST", "age": 66, "sex": "Male"},
-    "GENIE-UCSF-782801-63491T": {"cancer": "HEPATO", "oncotree": "HCC", "age": 74, "sex": "Male"},
-}
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--demo-dir",
+        type=Path,
+        default=PROJECT_ROOT / "demo_data",
+        help="Directory containing demo_manifest.csv and genomic files",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=PROJECT_ROOT / "demo_results",
+        help="Output directory for generated reports",
+    )
+    parser.add_argument(
+        "--shap-permutations",
+        type=int,
+        default=4,
+        help="Antithetic PermutationSHAP cycles per sample (default 4; 2 for rapid ~78s SHAP; 0 to skip)",
+    )
+    parser.add_argument(
+        "--html",
+        action="store_true",
+        help="Also render standalone report.html alongside report.pdf",
+    )
+    args = parser.parse_args()
 
-# Old v2 model predictions for comparison
-OLD_PREDICTIONS = {
-    "GENIE-MSK-P-0016546-T01-IM6": "BLADDER",
-    "GENIE-MSK-P-0031532-T01-IM6": "ESOPHAGOGASTRIC",
-    "GENIE-MSK-P-0042600-T01-IM6": "CNS",
-    "GENIE-MSK-P-0071028-T01-IM7": "COLORECTAL",
-    "GENIE-MSK-P-0079362-T01-IM7": "GYN",
-    "GENIE-MSK-P-0090767-T01-IM7": "ESOPHAGOGASTRIC",
-    "GENIE-UCSF-15252-7549T": "LUNG",
-    "GENIE-UCSF-15399-6820T": "SOFT_TISSUE",
-    "GENIE-UCSF-16316-7333T": "GIST",
-    "GENIE-UCSF-782801-63491T": "HEPATO",
-}
+    logging.basicConfig(level=logging.WARNING, format="%(levelname)s: %(message)s")
 
-import logging
-logging.basicConfig(level=logging.WARNING)
+    manifest_path = args.demo_dir / "demo_manifest.csv"
+    manifest = pd.read_csv(manifest_path)
 
-results = {}
-for sid, gt in GROUND_TRUTH.items():
-    maf_path = DEMO_DIR / f"{sid}.maf"
-    seg_path = DEMO_DIR / f"{sid}.seg"
+    ref = ReferenceData()
+    predictor_cache: dict[Path, TissuePredictor] = {}
 
-    if not maf_path.exists():
-        print(f"  SKIP {sid}: no MAF file")
-        continue
+    print(f"Running V20 tissue-classifier on {len(manifest)} demo samples -> {args.output_dir}")
+    print("-" * 104)
+    print(
+        f"{'Sample ID':<30s} {'Split':<14s} {'True':<18s} {'Predicted':<18s} "
+        f"{'Conf':>7s} {'MaxDiff':>10s} {'Time':>6s}"
+    )
+    print("-" * 104)
 
-    t0 = time.time()
-    cfg = PipelineConfig(
-        maf_path=maf_path,
-        seg_path=seg_path if seg_path.exists() else None,
-        age=gt["age"],
-        sex=gt["sex"],
-        genome="hg19",
-        output_dir=OUTPUT_DIR,
-        sample_id=sid,
-        shap_nsamples=0,  # Skip SHAP for speed
+    max_global_diff = 0.0
+    n_correct = 0
+
+    for _, row in manifest.iterrows():
+        sid = str(row["sample_id"])
+        maf_path = args.demo_dir / str(row["maf_file"])
+        seg_path = args.demo_dir / str(row["seg_file"])
+        sv_file = str(row.get("sv_file", "") or "").strip()
+        sv_path = (args.demo_dir / sv_file) if (sv_file and sv_file != "nan") else None
+
+        age = float(row["age"]) if pd.notna(row["age"]) else None
+        sex = str(row["sex"]) if pd.notna(row["sex"]) and str(row["sex"]).strip() else None
+        true_cls = str(row["true_tumor_type"])
+
+        t0 = time.perf_counter()
+        cfg = PipelineConfig(
+            maf_path=maf_path,
+            seg_path=seg_path,
+            sv_path=sv_path,
+            age=age,
+            sex=sex,
+            genome="hg19",
+            output_dir=args.output_dir,
+            sample_id=sid,
+            compute_shap=args.shap_permutations > 0,
+            shap_permutations=args.shap_permutations,
+            generate_html=args.html,
+            true_tumor_type=true_cls,
+        )
+        out = run_pipeline(cfg, predictor_cache=predictor_cache, ref=ref)
+        elapsed = time.perf_counter() - t0
+
+        assert out.prediction is not None, f"Unexpected no-call on demo sample {sid}"
+        labels = out.prediction.labels
+        pred_vec = np.array([out.prediction.all_probabilities[lbl] for lbl in labels], dtype=float)
+        cached_vec = np.array([float(row[f"prob_{lbl}"]) for lbl in labels], dtype=float)
+        max_diff = float(np.max(np.abs(pred_vec - cached_vec)))
+        max_global_diff = max(max_global_diff, max_diff)
+
+        if out.prediction.predicted_class == true_cls:
+            n_correct += 1
+
+        assert max_diff < 1e-5, f"Parity exceeded 1e-5 for {sid}: {max_diff:.3e}"
+        assert out.report_pdf_path.exists() and out.report_pdf_path.stat().st_size > 5_000
+
+        print(
+            f"{sid:<30s} {str(row['split']):<14s} {true_cls:<18s} "
+            f"{out.prediction.predicted_class:<18s} {out.prediction.confidence:>6.1%} "
+            f"{max_diff:>10.2e} {elapsed:>5.1f}s"
+        )
+
+    print("-" * 104)
+    print(
+        f"Demo batch complete: {n_correct}/{len(manifest)} Top-1 matches | "
+        f"max 22-class parity error = {max_global_diff:.3e} (< 1e-5)"
     )
 
-    try:
-        result = run_pipeline(cfg)
-        pred = result["prediction"]
-        elapsed = time.time() - t0
-        results[sid] = {
-            "v19_pred": pred.predicted_class,
-            "v19_conf": pred.confidence,
-            "v19_top3": pred.top3,
-            "true": gt["cancer"],
-            "old_pred": OLD_PREDICTIONS.get(sid, "?"),
-            "elapsed": elapsed,
-        }
-        correct = "OK" if pred.predicted_class == gt["cancer"] else "MISS"
-        old_match = "=" if pred.predicted_class == OLD_PREDICTIONS.get(sid) else "DIFF"
-        print(f"  {sid}: {pred.predicted_class} ({pred.confidence:.1%}) [{correct}] "
-              f"[old={OLD_PREDICTIONS.get(sid, '?')} {old_match}] ({elapsed:.1f}s)")
-    except Exception as e:
-        print(f"  {sid}: ERROR — {e}")
-        import traceback
-        traceback.print_exc()
-        results[sid] = {"error": str(e)}
 
-# Summary
-print("\n" + "=" * 85)
-print(f"{'Sample':<35s} {'True':>15s} {'V19 Pred':>15s} {'V2 Pred':>15s} {'Match':>5s}")
-print("-" * 85)
-
-v19_correct = 0
-v2_correct = 0
-same_pred = 0
-
-for sid, r in results.items():
-    if "error" in r:
-        print(f"  {sid:<35s} ERROR")
-        continue
-    true = r["true"]
-    v19 = r["v19_pred"]
-    v2 = r["old_pred"]
-    v19_ok = "OK" if v19 == true else ""
-    v2_ok = "OK" if v2 == true else ""
-    same = "=" if v19 == v2 else "diff"
-
-    if v19 == true: v19_correct += 1
-    if v2 == true: v2_correct += 1
-    if v19 == v2: same_pred += 1
-
-    print(f"  {sid:<35s} {true:>15s} {v19:>15s} {v2:>15s} {same:>5s}")
-
-n = len([r for r in results.values() if "error" not in r])
-print("-" * 85)
-print(f"  V19 accuracy: {v19_correct}/{n} ({v19_correct/n:.0%})")
-print(f"  V2 accuracy:  {v2_correct}/{n} ({v2_correct/n:.0%})")
-print(f"  Same prediction: {same_pred}/{n} ({same_pred/n:.0%})")
+if __name__ == "__main__":
+    main()

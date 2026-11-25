@@ -1,0 +1,2 @@
+Sample_Id	SV_Status	Site1_Hugo_Symbol	Site2_Hugo_Symbol	Class	NCBI_Build
+SYNTH_PROSTATE_01	SOMATIC	ERG	TMPRSS2	DELETION	GRCh37

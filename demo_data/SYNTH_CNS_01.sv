@@ -1,0 +1,2 @@
+Sample_Id	SV_Status	Site1_Hugo_Symbol	Site2_Hugo_Symbol	Class	NCBI_Build
+SYNTH_CNS_01	SOMATIC	EGFR	EGFR	DELETION	GRCh37

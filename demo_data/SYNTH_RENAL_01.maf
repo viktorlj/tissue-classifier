@@ -1,0 +1,4 @@
+Hugo_Symbol	NCBI_Build	Chromosome	Start_Position	End_Position	Variant_Classification	Variant_Type	Reference_Allele	Tumor_Seq_Allele2	Tumor_Sample_Barcode	Mutation_Status	FILTER
+VHL	GRCh37	3	10183725	10183725	Nonsense_Mutation	SNP	C	T	SYNTH_RENAL_01	SOMATIC	PASS
+SETD2	GRCh37	3	47058705	47058705	Frame_Shift_Ins	INS	-	A	SYNTH_RENAL_01	SOMATIC	PASS
+BAP1	GRCh37	3	52436403	52436403	Frame_Shift_Del	DEL	G	-	SYNTH_RENAL_01	SOMATIC	PASS

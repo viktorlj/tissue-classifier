@@ -1,0 +1,4 @@
+Hugo_Symbol	NCBI_Build	Chromosome	Start_Position	End_Position	Variant_Classification	Variant_Type	Reference_Allele	Tumor_Seq_Allele2	Tumor_Sample_Barcode	Mutation_Status	FILTER
+FOXA1	GRCh37	14	38061207	38061207	Missense_Mutation	SNP	C	T	SYNTH_PROSTATE_01	SOMATIC	PASS
+SPOP	GRCh37	17	47696424	47696424	Missense_Mutation	SNP	G	T	SYNTH_PROSTATE_01	SOMATIC	PASS
+PTEN	GRCh37	10	89653814	89653814	Nonsense_Mutation	SNP	C	T	SYNTH_PROSTATE_01	SOMATIC	PASS

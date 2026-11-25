@@ -1,0 +1,9 @@
+sample_id: SYNTH_EXAMPLE_01
+maf_path: examples/example_sample.maf
+seg_path: examples/example_sample.seg
+sv_path: examples/example_sample.sv
+age: 68.0
+sex: Female
+genome: hg19
+output_dir: results
+shap_permutations: 4
