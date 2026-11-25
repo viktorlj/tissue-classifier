@@ -1,27 +1,22 @@
-# tissue-classifier (v2.0) — Cross-Architecture (`2× RealMLP + 2× TabM`) Tissue-of-Origin Inference & Top-3 SHAP PDF Reports
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/topo_logo_dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="assets/logo/topo_logo.svg">
+    <img alt="TOPO — Tissue-of-Origin for Pathology & Oncology" src="assets/logo/topo_logo.svg" width="520">
+  </picture>
+</p>
 
-Standalone clinical and research command-line package for predicting a tumor's **tissue of origin (22 classes)** from targeted panel sequencing (`MAF` + `SEG` + optional `SV` + clinical `age`/`sex`) using the calibrated **v2.0 AACR GENIE v20 4-view cross-architecture ensemble (`2× RealMLP + 2× TabM`, 40 networks)**.
+# TOPO (v2.0) — Tissue-of-Origin for Pathology & Oncology
+
+Standalone clinical and research command-line package (`tissue-classifier`) for predicting a tumor's **tissue of origin (22 classes)** from targeted panel sequencing (`MAF` + `SEG` + optional `SV`, `age`, `sex`) using **TOPO**, a calibrated AACR GENIE v20 4-view cross-architecture ensemble (`2× RealMLP + 2× TabM`, 40 networks).
 
 ---
 
 ## Key Features
-- **Calibrated v2.0 Cross-Architecture Ensemble (`models/primary_50pct_blend/`)**:
-  - Evaluates all **40 frozen PyTabKit networks** (`realmlp_v1`, `realmlp_v2`, `tabm_v1`, `tabm_v2` × 5 patient-grouped folds × unweighted & class-balanced arms) in a unified pure-PyTorch MPS/CPU `DifferentiableBlend` (including exact `TorchQuantileTransform` parity for TabM), applies equal **LogitPool** across views + 50/50 **LogitPool** across arms, and calibrates via **L2-regularized per-class Vector Scaling**.
-  - Applies frozen source-selected confidence policies:
-    - **High Confidence (`>= 73%` Top-1)**: 95% target accuracy (`96.21%` internal test accuracy at `77.82%` coverage; `91.59%` external VICC accuracy at `62.04%` eligible coverage).
-    - **Standard Confidence (`>= 46%` Top-1)**: 90% target accuracy (`90.58%` internal test accuracy at `92.64%` coverage; `81.61%` external VICC accuracy at `85.89%` coverage).
-    - **Top-3 Differential (`100%` coverage)**: 95% Top-3 target accuracy (`95.96%` internal test Top-3 accuracy; `89.88%` external VICC Top-3 accuracy).
-- **Scale-Invariant CNA Processing, `TERT` Promoter Features & `--allow-no-cna` Fallback**:
-  - Computes 10 Mb signed-rank (`CNA_bin__*`) and scale-invariant winsorized-RMS (`CNA_zbin__*` + 24 `CNA_inv_*` summaries) profiles (`hg19`, corrected `chr2 = 243,199,373` bp) plus `TERT` promoter `5'Flank` hotspot indicators (`C228T`, `C250T`, `other`, `any`); unmeasured genomic bins are **never** zero-filled and assay-specific coverage/missingness shortcuts are excluded.
-  - **Default**: Samples missing `--seg` or below the `>= 85%` genome-wide observed-bin coverage gate receive a clear `TECHNICAL_NO_CALL` diagnostic PDF report.
-  - **`--allow-no-cna`**: Routes inference and SHAP through the retrained **40-network CNA-free fallback ensemble** (`models/fallback_without_cna/`, policies `>= 83%` High-Conf / `>= 68%` Standard / `>= 84%` Top-3) with a prominent clinical warning banner in `report.pdf`.
-- **Coherent All-Class `PermutationSHAP` (Exact Invariant-Pruned) & Multi-Page Vector `report.pdf`**:
-  - Uses `FoldCoherentMasker` with exact Dummy-Axiom invariant pruning across 32 aggregate-derived synthetic background profiles (`SYNTH_BG_00..63`, configurable via `--shap-background 16|32|64` and `--shap-permutations 4` default, or `--shap-permutations 2` for rapid ~78s MPS runs; **zero individual GENIE patient records redistributed**) to compute exact additive SHAP values across all 22 calibrated class probabilities simultaneously (`max |base + sum(shap) - P(class)| < 2e-5`).
-  - Produces a 4-page vector PDF report (`<output>/<sample_id>/report.pdf`):
-    - **Page 1**: Executive Clinical Summary, Policy Tier Badge, Top-3 Candidate Bar Chart, and Full 22-Class Probability Profile.
-    - **Page 2**: Vector SHAP Waterfall Plot & Supporting/Counter-Evidence Table for **Rank #1** Most Likely Tumor Type.
-    - **Page 3**: Vector SHAP Waterfall Plots for **Rank #2** and **Rank #3** Most Likely Tumor Types.
-    - **Page 4**: Sample Molecular Profile (Detected Somatic Mutations, SVs, Chromosome CNA Profile, SBS-6 Spectrum) & 5-Fold Technical Audit.
+- **Calibrated Cross-Architecture Ensemble**: 40 frozen PyTabKit networks (`2× RealMLP + 2× TabM` × 5 folds × unweighted & balanced arms) evaluated in pure PyTorch (MPS/CPU) with LogitPool aggregation and per-class vector scaling.
+- **Confidence-Tiered Clinical Policies**: Frozen thresholds for **High Confidence** (`>= 73%` Top-1: `96.2%` internal / `91.6%` external VICC accuracy), **Standard** (`>= 46%` Top-1: `90.6%` / `81.6%`), and **Top-3 Differential** (`96.0%` / `89.9%` at `100%` coverage).
+- **Scale-Invariant CNA & Fallback Mode**: 10 Mb signed-rank and winsorized-RMS CNA profiles (`hg19`, with `--genome hg38` liftover) plus `TERT` promoter hotspots (`C228T`/`C250T`). Samples missing `--seg` or `< 85%` observed-bin coverage emit `TECHNICAL_NO_CALL` by default, or route to a 40-network CNA-free fallback ensemble via `--allow-no-cna`.
+- **Exact All-Class SHAP & 4-Page Vector PDF Reports**: Coherent `PermutationSHAP` over synthetic aggregate-derived backgrounds (zero individual GENIE records redistributed) generating `report.pdf` (executive summary, Rank #1–#3 SHAP waterfalls, molecular profile, and 5-fold audit) plus optional `--html`.
 
 ---
 

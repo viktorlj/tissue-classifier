@@ -1,7 +1,7 @@
 [project]
 name = "tissue-classifier"
 version = "2.0.0"
-description = "Single-sample v2.0 cross-architecture (2x RealMLP + 2x TabM) tissue-of-origin classification and Top-3 SHAP waterfall clinical PDF reporting"
+description = "TOPO (Tissue-of-Origin for Pathology & Oncology) v2.0 — cross-architecture (2x RealMLP + 2x TabM) tumor tissue-of-origin classifier and Top-3 SHAP PDF reporting"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 dependencies = [
